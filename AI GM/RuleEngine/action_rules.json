@@ -1,0 +1,17 @@
+[
+  {
+    "keywords": ["攻擊", "打", "砍", "揮劍"],
+    "type": "attack",
+    "check": "strength"
+  },
+  {
+    "keywords": ["閃", "躲", "閃避"],
+    "type": "dodge",
+    "check": "dexterity"
+  },
+  {
+    "keywords": ["觀察", "調查", "搜尋"],
+    "type": "investigate",
+    "check": "intelligence"
+  }
+]
