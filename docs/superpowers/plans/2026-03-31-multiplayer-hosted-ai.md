@@ -116,7 +116,23 @@ enum RoundStatus: String, Codable {
     case resolved
 }
 
-struct CampaignAction: Identifiable, Equatable {
+struct CampaignRoom: Identifiable, Codable, Equatable {
+    let id: String
+    let name: String
+    let hostId: String
+    let phase: CampaignPhase
+    let provider: String
+    let model: String
+    let currentRoundId: String?
+}
+
+struct CampaignRound: Identifiable, Codable, Equatable {
+    let id: String
+    let number: Int
+    let status: RoundStatus
+}
+
+struct CampaignAction: Identifiable, Codable, Equatable {
     let id: String
     let playerId: String
     let playerName: String
@@ -124,9 +140,16 @@ struct CampaignAction: Identifiable, Equatable {
     let isConfirmed: Bool
 }
 
-struct CampaignMessage: Identifiable, Equatable {
+enum CampaignMessageKind: String, Codable {
+    case opening
+    case system
+    case narration
+    case player
+}
+
+struct CampaignMessage: Identifiable, Codable, Equatable {
     let id: String
-    let kind: String
+    let kind: CampaignMessageKind
     let text: String
     let roundNumber: Int?
 }
