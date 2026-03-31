@@ -14,11 +14,14 @@ enum CheckType: String {
 }
 
 class GameEngine {
-    
     private let parser = ActionParser()
-    private let aiService = AIService()
+    private let defaultConfiguration: AIHostConfiguration?
     
     private let successThreshold = 10
+
+    init(configuration: AIHostConfiguration? = nil) {
+        self.defaultConfiguration = configuration
+    }
     
     func performCheck(player: Player, type: CheckType) -> (roll: Int, total: Int, success: Bool) {
         let roll = Int.random(in: 1...20)
@@ -35,9 +38,91 @@ class GameEngine {
         
         return (roll, total, success)
     }
-    
+
+    func makeOpeningPrompt(players: [Player], systemPrompt: String) -> String {
+        _ = systemPrompt
+        let playerSummary = players.map(\.statSummary).joined(separator: "\n")
+
+        return """
+        你是一個TRPG GM，請為以下角色生成故事開場。
+
+        玩家列表：
+        \(playerSummary)
+
+        請用JSON回應：
+        {
+          "narration": "..."
+        }
+        """
+    }
+
+    func makeRoundPrompt(
+        messages: [CampaignMessage],
+        players: [Player],
+        actions: [CampaignAction],
+        systemPrompt: String
+    ) -> String {
+        _ = systemPrompt
+        let messageSummary = messages.map { message in
+            let roundText = message.roundNumber.map { "第\($0)回合" } ?? "無回合"
+            return "[\(message.kind.rawValue)][\(roundText)] \(message.text)"
+        }.joined(separator: "\n")
+
+        let playerSummary = players.map(\.statSummary).joined(separator: "\n")
+        let actionSummary = actions.map { action in
+            "\(action.playerName)：\(action.text)"
+        }.joined(separator: "\n")
+
+        return """
+        你是一個TRPG GM，請根據目前劇情與玩家行動結算本回合。
+
+        玩家列表：
+        \(playerSummary)
+
+        先前訊息：
+        \(messageSummary)
+
+        本回合行動：
+        \(actionSummary)
+
+        請用JSON回應：
+        {
+          "narration": "..."
+        }
+        """
+    }
+
+    func generateOpeningNarration(players: [Player], configuration: AIHostConfiguration) async throws -> String {
+        let prompt = makeOpeningPrompt(players: players, systemPrompt: configuration.systemPrompt)
+        let aiService = AIService(configuration: configuration)
+        return try await aiService.sendMessage(messages: narrationMessages(
+            userPrompt: prompt,
+            systemPrompt: configuration.systemPrompt
+        )).narration
+    }
+
+    func resolveRound(
+        messages: [CampaignMessage],
+        players: [Player],
+        actions: [CampaignAction],
+        configuration: AIHostConfiguration
+    ) async throws -> String {
+        let prompt = makeRoundPrompt(
+            messages: messages,
+            players: players,
+            actions: actions,
+            systemPrompt: configuration.systemPrompt
+        )
+        let aiService = AIService(configuration: configuration)
+        return try await aiService.sendMessage(messages: narrationMessages(
+            userPrompt: prompt,
+            systemPrompt: configuration.systemPrompt
+        )).narration
+    }
+
+    // Temporary compatibility helper for pre-Task-3/4 callers that still use GameEngine().processAction(_:player:).
+    // When no configuration is injected, this path stays offline and falls back locally.
     func processAction(_ input: String, player: Player) async -> String {
-        
         let parsed = parser.parse(input)
         var checkType = parsed.check
         
@@ -67,24 +152,31 @@ class GameEngine {
             resultText = "無需檢定"
         }
         
-        let prompt = """
-        你是一個TRPG GM。
-        
-        玩家：\(player.name)
-        行動：\(input)
-        
-        \(rollInfo)
-        結果：\(resultText)
-        
-        請用JSON回應：
-        {
-          "narration": "描述故事"
+        let action = CampaignAction(
+            id: UUID().uuidString,
+            playerId: player.id,
+            playerName: player.name,
+            text: input,
+            isConfirmed: true
+        )
+        let systemMessage = CampaignMessage(
+            id: UUID().uuidString,
+            kind: .system,
+            text: "\(rollInfo)\n結果：\(resultText)",
+            roundNumber: nil
+        )
+
+        guard let configuration = defaultConfiguration else {
+            return generateFallbackNarration(input: input, playerName: player.name, resultText: resultText)
         }
-        """
         
         do {
-            let aiResponse = try await aiService.sendMessage(prompt: prompt)
-            return aiResponse.narration
+            return try await resolveRound(
+                messages: [systemMessage],
+                players: [player],
+                actions: [action],
+                configuration: configuration
+            )
         } catch {
             return generateFallbackNarration(input: input, playerName: player.name, resultText: resultText)
         }
@@ -96,7 +188,13 @@ class GameEngine {
     
     // MARK: - AI Decision
     
+    // Temporary compatibility helper used by the legacy processAction path until newer campaign flows take over.
+    // With no injected configuration, this remains offline and returns nil instead of attempting a request.
     func askAIDecision(action: String) async -> AIDecision? {
+        guard let configuration = defaultConfiguration else {
+            return nil
+        }
+
         let prompt = """
         判斷是否需要檢定。
         
@@ -110,11 +208,22 @@ class GameEngine {
         """
         
         do {
-            let raw = try await aiService.sendRawJSON(prompt: prompt)
+            let aiService = AIService(configuration: configuration)
+            let raw = try await aiService.sendRawJSON(messages: [
+                AIService.Message(role: .system, content: "只輸出JSON"),
+                AIService.Message(role: .user, content: prompt)
+            ])
             guard let data = raw.data(using: .utf8) else { return nil }
             return try JSONDecoder().decode(AIDecision.self, from: data)
         } catch {
             return nil
         }
+    }
+
+    private func narrationMessages(userPrompt: String, systemPrompt: String) -> [AIService.Message] {
+        [
+            AIService.Message(role: .system, content: "\(systemPrompt)\n只輸出JSON。"),
+            AIService.Message(role: .user, content: userPrompt)
+        ]
     }
 }
