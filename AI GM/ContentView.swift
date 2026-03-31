@@ -58,7 +58,7 @@ struct ContentView: View {
             Spacer().frame(height: 40)
             
             VStack(spacing: 16) {
-                GameTextField(placeholder: "你的名字", text: $playerName)
+                GameTextField(placeholder: "暱稱", text: $playerName)
                     .padding(.horizontal, 40)
                 
                 Button {
@@ -123,16 +123,20 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.gray)
                 HStack(spacing: 8) {
-                    Text(campaign.campaignId!)
+                    Text(campaign.campaignId ?? "未知")
                         .font(.headline)
                         .foregroundStyle(.white)
                     
                     Button {
                         #if os(iOS)
-                        UIPasteboard.general.string = campaign.campaignId
+                        if let id = campaign.campaignId {
+                            UIPasteboard.general.string = id
+                        }
                         #else
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(campaign.campaignId!, forType: .string)
+                        if let id = campaign.campaignId {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(id, forType: .string)
+                        }
                         #endif
                     } label: {
                         Image(systemName: "doc.on.doc")

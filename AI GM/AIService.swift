@@ -13,13 +13,22 @@ class AIService {
 
     func sendMessage(prompt: String) async throws -> AIResponse {
         let content = try await sendRawJSON(prompt: prompt)
-        let data = content.data(using: .utf8)!
+        guard let data = content.data(using: .utf8) else {
+            throw AIServiceError.invalidResponse
+        }
         return try JSONDecoder().decode(AIResponse.self, from: data)
     }
 
-    func sendRawJSON(prompt: String) async throws -> String {
+    enum AIServiceError: Error {
+        case invalidResponse
+        case invalidURL
+    }
 
-        let url = URL(string: "https://api.openai.com/v1/chat/completions")!
+    func sendRawJSON(prompt: String) async throws -> String {
+        
+        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
+            throw AIServiceError.invalidURL
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

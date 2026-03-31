@@ -10,69 +10,85 @@ import FirebaseFirestore
 internal import Combine
 
 class CampaignService: ObservableObject {
-
+    
     private let db = Firestore.firestore()
-
+    
     @Published var campaignId: String?
     @Published var messages: [String] = []
     @Published var players: [Player] = []
     @Published var currentTurn: String = ""
-
+    
     let userId = UserService.shared.userId
-
+    
+    private var listeners: [ListenerRegistration] = []
+    
+    private enum DefaultStats {
+        static let hp = 20
+        static let strength = 2
+        static let dexterity = 2
+        static let intelligence = 2
+    }
+    
     // MARK: - Create / Join
-
+    
     func createCampaign(name: String, playerName: String) {
         let doc = db.collection("campaigns").document()
         campaignId = doc.documentID
-
+        
         doc.setData([
             "name": name,
             "hostId": userId,
             "currentTurn": userId
         ])
-
+        
         doc.collection("players").document(userId).setData([
             "name": playerName,
-            "hp": 20,
-            "strength": 3,
-            "dexterity": 2,
-            "intelligence": 1
+            "hp": DefaultStats.hp,
+            "strength": DefaultStats.strength,
+            "dexterity": DefaultStats.dexterity,
+            "intelligence": DefaultStats.intelligence
         ])
-
+        
         startListening()
     }
-
+    
     func joinCampaign(campaignId: String, playerName: String) {
         self.campaignId = campaignId
-
+        
         db.collection("campaigns")
             .document(campaignId)
             .collection("players")
             .document(userId)
             .setData([
                 "name": playerName,
-                "hp": 20,
-                "strength": 2,
-                "dexterity": 2,
-                "intelligence": 2
+                "hp": DefaultStats.hp,
+                "strength": DefaultStats.strength,
+                "dexterity": DefaultStats.dexterity,
+                "intelligence": DefaultStats.intelligence
             ])
-
+        
         startListening()
     }
-
+    
     // MARK: - Listening
-
+    
     func startListening() {
+        stopListening()
+        
         listenMessages()
         listenPlayers()
         listenCampaign()
     }
-
-    func listenMessages() {
+    
+    func stopListening() {
+        listeners.forEach { $0.remove() }
+        listeners.removeAll()
+    }
+    
+    private func listenMessages() {
         guard let campaignId else { return }
-
-        db.collection("campaigns")
+        
+        let listener = db.collection("campaigns")
             .document(campaignId)
             .collection("messages")
             .order(by: "timestamp")
@@ -82,12 +98,13 @@ class CampaignService: ObservableObject {
                     $0["text"] as? String
                 } ?? []
             }
+        listeners.append(listener)
     }
-
-    func listenPlayers() {
+    
+    private func listenPlayers() {
         guard let campaignId else { return }
-
-        db.collection("campaigns")
+        
+        let listener = db.collection("campaigns")
             .document(campaignId)
             .collection("players")
             .addSnapshotListener { snapshot, _ in
@@ -105,18 +122,20 @@ class CampaignService: ObservableObject {
                     )
                 } ?? []
             }
+        listeners.append(listener)
     }
-
-    func listenCampaign() {
+    
+    private func listenCampaign() {
         guard let campaignId else { return }
-
-        db.collection("campaigns")
+        
+        let listener = db.collection("campaigns")
             .document(campaignId)
             .addSnapshotListener { snapshot, _ in
                 
                 let data = snapshot?.data()
                 self.currentTurn = data?["currentTurn"] as? String ?? ""
             }
+        listeners.append(listener)
     }
 
     // MARK: - Messaging
