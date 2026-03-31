@@ -9,163 +9,461 @@ import Foundation
 import FirebaseFirestore
 internal import Combine
 
-class CampaignService: ObservableObject {
-    
+@MainActor
+final class CampaignService: ObservableObject {
     private let db = Firestore.firestore()
-    
+
     @Published var campaignId: String?
+    @Published var campaignName: String = ""
+    @Published var hostId: String = ""
+    @Published var phase: CampaignPhase = .lobby
+    @Published var provider: String = ""
+    @Published var model: String = ""
+    @Published var currentRoundId: String?
+    @Published var currentRoundNumber: Int = 0
+    @Published var typedMessages: [CampaignMessage] = []
     @Published var messages: [String] = []
     @Published var players: [Player] = []
+    @Published var confirmedActions: [CampaignAction] = []
+    @Published var localErrorMessage: String?
+
+    // Temporary compatibility state for the pre-Task-4 view.
     @Published var currentTurn: String = ""
-    
+
     let userId = UserService.shared.userId
-    
+
     private var listeners: [ListenerRegistration] = []
-    
+    private var currentRoundListener: ListenerRegistration?
+    private var currentRoundActionsListener: ListenerRegistration?
+
     private enum DefaultStats {
         static let hp = 20
         static let strength = 2
         static let dexterity = 2
         static let intelligence = 2
     }
-    
-    // MARK: - Create / Join
-    
-    func createCampaign(name: String, playerName: String) {
-        let doc = db.collection("campaigns").document()
-        campaignId = doc.documentID
-        
-        doc.setData([
-            "name": name,
-            "hostId": userId,
-            "currentTurn": userId
-        ])
-        
-        doc.collection("players").document(userId).setData([
-            "name": playerName,
-            "hp": DefaultStats.hp,
-            "strength": DefaultStats.strength,
-            "dexterity": DefaultStats.dexterity,
-            "intelligence": DefaultStats.intelligence
-        ])
-        
-        startListening()
+
+    var isHost: Bool {
+        hostId == userId
     }
-    
+
+    var readyPlayerCount: Int {
+        confirmedActions.count
+    }
+
+    var areAllPlayersReady: Bool {
+        !players.isEmpty && confirmedActions.count == players.count
+    }
+
+    var myConfirmedAction: CampaignAction? {
+        confirmedActions.first { $0.playerId == userId }
+    }
+
+    // MARK: - Create / Join
+
+    func createCampaign(name: String, playerName: String, configuration: AIHostConfiguration) async {
+        do {
+            let validatedConfiguration = try configuration.validated()
+            let doc = db.collection("campaigns").document()
+            let now = Timestamp()
+
+            try AIHostConfigurationStore.save(validatedConfiguration, campaignId: doc.documentID)
+
+            try await doc.setData([
+                "name": name,
+                "hostId": userId,
+                "phase": CampaignPhase.lobby.rawValue,
+                "provider": validatedConfiguration.provider,
+                "model": validatedConfiguration.model,
+                "createdAt": now,
+                "updatedAt": now
+            ])
+
+            try await upsertPlayer(
+                campaignId: doc.documentID,
+                playerId: userId,
+                playerName: playerName
+            )
+
+            campaignId = doc.documentID
+            startListening()
+        } catch {
+            localErrorMessage = "建立房間失敗：\(error.localizedDescription)"
+        }
+    }
+
+    // Temporary compatibility wrapper for the pre-Task-4 lobby form.
+    func createCampaign(name: String, playerName: String) {
+        let compatibilityConfiguration = AIHostConfiguration(
+            provider: "OpenAI Compatible",
+            apiFormat: .openAICompatible,
+            baseURL: "https://api.openai.com/v1",
+            model: "gpt-4o-mini",
+            apiKey: "",
+            systemPrompt: "你是一個TRPG GM。"
+        )
+
+        Task {
+            await createCampaign(name: name, playerName: playerName, configuration: compatibilityConfiguration)
+        }
+    }
+
     func joinCampaign(campaignId: String, playerName: String) {
         self.campaignId = campaignId
-        
-        db.collection("campaigns")
+
+        Task {
+            do {
+                try await upsertPlayer(
+                    campaignId: campaignId,
+                    playerId: userId,
+                    playerName: playerName
+                )
+                startListening()
+            } catch {
+                localErrorMessage = "加入房間失敗：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func upsertPlayer(campaignId: String, playerId: String, playerName: String) async throws {
+        try await db.collection("campaigns")
             .document(campaignId)
             .collection("players")
-            .document(userId)
+            .document(playerId)
             .setData([
                 "name": playerName,
                 "hp": DefaultStats.hp,
+                "maxHP": DefaultStats.hp,
                 "strength": DefaultStats.strength,
                 "dexterity": DefaultStats.dexterity,
-                "intelligence": DefaultStats.intelligence
-            ])
-        
-        startListening()
+                "intelligence": DefaultStats.intelligence,
+                "isConnected": true,
+                "joinedAt": Timestamp()
+            ], merge: true)
     }
-    
+
     // MARK: - Listening
-    
+
     func startListening() {
         stopListening()
-        
+
+        listenCampaign()
         listenMessages()
         listenPlayers()
-        listenCampaign()
+        refreshRoundListeners()
     }
-    
+
     func stopListening() {
         listeners.forEach { $0.remove() }
         listeners.removeAll()
+        currentRoundListener?.remove()
+        currentRoundListener = nil
+        currentRoundActionsListener?.remove()
+        currentRoundActionsListener = nil
     }
-    
+
+    private func listenCampaign() {
+        guard let campaignId else { return }
+
+        let listener = db.collection("campaigns")
+            .document(campaignId)
+            .addSnapshotListener { [weak self] snapshot, _ in
+                guard let self else { return }
+                let data = snapshot?.data() ?? [:]
+
+                self.campaignName = data["name"] as? String ?? ""
+                self.hostId = data["hostId"] as? String ?? ""
+                self.phase = CampaignPhase(rawValue: data["phase"] as? String ?? "") ?? .lobby
+                self.provider = data["provider"] as? String ?? ""
+                self.model = data["model"] as? String ?? ""
+                self.currentTurn = self.hostId
+
+                let nextRoundId = data["currentRoundId"] as? String
+                if nextRoundId != self.currentRoundId {
+                    self.currentRoundId = nextRoundId
+                    self.refreshRoundListeners()
+                }
+            }
+
+        listeners.append(listener)
+    }
+
     private func listenMessages() {
         guard let campaignId else { return }
-        
+
         let listener = db.collection("campaigns")
             .document(campaignId)
             .collection("messages")
             .order(by: "timestamp")
-            .addSnapshotListener { snapshot, _ in
-                
-                self.messages = snapshot?.documents.compactMap {
-                    $0["text"] as? String
-                } ?? []
+            .addSnapshotListener { [weak self] snapshot, _ in
+                guard let self else { return }
+                self.typedMessages = snapshot?.documents.map { self.decodeMessage(from: $0) } ?? []
+                self.messages = self.typedMessages.map(\.text)
             }
+
         listeners.append(listener)
     }
-    
+
     private func listenPlayers() {
         guard let campaignId else { return }
-        
+
         let listener = db.collection("campaigns")
             .document(campaignId)
             .collection("players")
-            .addSnapshotListener { snapshot, _ in
-                
-                self.players = snapshot?.documents.compactMap { doc in
-                    let d = doc.data()
-                    return Player(
-                        id: doc.documentID,
-                        name: d["name"] as? String ?? "",
-                        strength: d["strength"] as? Int ?? 0,
-                        dexterity: d["dexterity"] as? Int ?? 0,
-                        intelligence: d["intelligence"] as? Int ?? 0,
-                        hp: d["hp"] as? Int ?? 0,
-                        maxHP: d["hp"] as? Int ?? 0
-                    )
-                } ?? []
+            .addSnapshotListener { [weak self] snapshot, _ in
+                guard let self else { return }
+                self.players = snapshot?.documents.map { self.decodePlayer(from: $0) } ?? []
             }
+
         listeners.append(listener)
     }
-    
-    private func listenCampaign() {
-        guard let campaignId else { return }
-        
-        let listener = db.collection("campaigns")
+
+    private func refreshRoundListeners() {
+        currentRoundListener?.remove()
+        currentRoundListener = nil
+        currentRoundActionsListener?.remove()
+        currentRoundActionsListener = nil
+        confirmedActions = []
+        currentRoundNumber = 0
+
+        guard let campaignId, let currentRoundId else { return }
+
+        currentRoundListener = db.collection("campaigns")
             .document(campaignId)
-            .addSnapshotListener { snapshot, _ in
-                
-                let data = snapshot?.data()
-                self.currentTurn = data?["currentTurn"] as? String ?? ""
+            .collection("rounds")
+            .document(currentRoundId)
+            .addSnapshotListener { [weak self] snapshot, _ in
+                guard let self else { return }
+                let data = snapshot?.data() ?? [:]
+                self.currentRoundNumber = data["number"] as? Int ?? 0
             }
-        listeners.append(listener)
+
+        currentRoundActionsListener = db.collection("campaigns")
+            .document(campaignId)
+            .collection("rounds")
+            .document(currentRoundId)
+            .collection("actions")
+            .whereField("isConfirmed", isEqualTo: true)
+            .addSnapshotListener { [weak self] snapshot, _ in
+                guard let self else { return }
+                self.confirmedActions = snapshot?.documents.map { self.decodeAction(from: $0) } ?? []
+            }
     }
 
     // MARK: - Messaging
 
     func sendMessage(_ text: String) {
-        guard let campaignId else { return }
-
-        db.collection("campaigns")
-            .document(campaignId)
-            .collection("messages")
-            .addDocument(data: [
-                "text": text,
-                "timestamp": Timestamp()
-            ])
+        Task {
+            do {
+                try await publishMessage(
+                    kind: .player,
+                    text: text,
+                    roundNumber: currentRoundNumber == 0 ? nil : currentRoundNumber
+                )
+            } catch {
+                localErrorMessage = "送出訊息失敗：\(error.localizedDescription)"
+            }
+        }
     }
 
-    // MARK: - Turn
-
-    func advanceTurn() {
+    private func publishMessage(kind: CampaignMessageKind, text: String, roundNumber: Int?) async throws {
         guard let campaignId else { return }
 
-        guard let index = players.firstIndex(where: { $0.id == currentTurn }) else { return }
-
-        let nextIndex = (index + 1) % players.count
-        let nextPlayerId = players[nextIndex].id
-
-        db.collection("campaigns")
+        let document = db.collection("campaigns")
             .document(campaignId)
-            .updateData([
-                "currentTurn": nextPlayerId
+            .collection("messages")
+            .document()
+
+        var payload: [String: Any] = [
+            "kind": kind.rawValue,
+            "text": text,
+            "timestamp": Timestamp()
+        ]
+
+        if let roundNumber {
+            payload["roundNumber"] = roundNumber
+        }
+
+        try await document.setData(payload)
+    }
+
+    // MARK: - Actions
+
+    func confirmAction(text: String) async throws {
+        guard let campaignId, let currentRoundId else { return }
+
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+
+        let playerName = players.first(where: { $0.id == userId })?.name ?? ""
+
+        try await db.collection("campaigns")
+            .document(campaignId)
+            .collection("rounds")
+            .document(currentRoundId)
+            .collection("actions")
+            .document(userId)
+            .setData([
+                "playerId": userId,
+                "playerName": playerName,
+                "text": trimmedText,
+                "isConfirmed": true,
+                "confirmedAt": Timestamp(),
+                "updatedAt": Timestamp()
+            ], merge: true)
+    }
+
+    func cancelConfirmedAction() async throws {
+        guard let campaignId, let currentRoundId else { return }
+
+        try await db.collection("campaigns")
+            .document(campaignId)
+            .collection("rounds")
+            .document(currentRoundId)
+            .collection("actions")
+            .document(userId)
+            .delete()
+    }
+
+    // MARK: - Flow
+
+    func startGame(using engine: GameEngine) async {
+        guard isHost, let campaignId else { return }
+
+        do {
+            guard let configuration = try AIHostConfigurationStore.load(campaignId: campaignId) else {
+                localErrorMessage = "找不到房主 AI 設定"
+                return
+            }
+
+            try await updateCampaign([
+                "phase": CampaignPhase.starting.rawValue,
+                "updatedAt": Timestamp()
             ])
+
+            let narration = try await engine.generateOpeningNarration(
+                players: players,
+                configuration: configuration
+            )
+
+            try await publishMessage(kind: .opening, text: narration, roundNumber: nil)
+            try await createRound(number: 1)
+            try await updateCampaign([
+                "phase": CampaignPhase.collectingActions.rawValue,
+                "updatedAt": Timestamp()
+            ])
+        } catch {
+            try? await updateCampaign([
+                "phase": CampaignPhase.lobby.rawValue,
+                "updatedAt": Timestamp()
+            ])
+            localErrorMessage = "開始遊戲失敗：\(error.localizedDescription)"
+        }
+    }
+
+    func continueRound(using engine: GameEngine) async {
+        guard isHost, areAllPlayersReady, let campaignId else { return }
+
+        do {
+            guard let configuration = try AIHostConfigurationStore.load(campaignId: campaignId) else {
+                localErrorMessage = "找不到房主 AI 設定"
+                return
+            }
+
+            try await updateCampaign([
+                "phase": CampaignPhase.resolvingTurn.rawValue,
+                "updatedAt": Timestamp()
+            ])
+
+            let narration = try await engine.resolveRound(
+                messages: typedMessages,
+                players: players,
+                actions: confirmedActions,
+                configuration: configuration
+            )
+
+            try await publishMessage(
+                kind: .narration,
+                text: narration,
+                roundNumber: currentRoundNumber == 0 ? nil : currentRoundNumber
+            )
+            try await createRound(number: currentRoundNumber + 1)
+            try await updateCampaign([
+                "phase": CampaignPhase.collectingActions.rawValue,
+                "updatedAt": Timestamp()
+            ])
+        } catch {
+            try? await updateCampaign([
+                "phase": CampaignPhase.collectingActions.rawValue,
+                "updatedAt": Timestamp()
+            ])
+            localErrorMessage = "結算回合失敗：\(error.localizedDescription)"
+        }
+    }
+
+    private func createRound(number: Int) async throws {
+        guard let campaignId else { return }
+
+        let roundDocument = db.collection("campaigns")
+            .document(campaignId)
+            .collection("rounds")
+            .document()
+
+        try await roundDocument.setData([
+            "number": number,
+            "status": RoundStatus.collecting.rawValue,
+            "createdAt": Timestamp()
+        ])
+
+        try await updateCampaign([
+            "currentRoundId": roundDocument.documentID,
+            "updatedAt": Timestamp()
+        ])
+    }
+
+    private func updateCampaign(_ data: [String: Any]) async throws {
+        guard let campaignId else { return }
+        try await db.collection("campaigns")
+            .document(campaignId)
+            .setData(data, merge: true)
+    }
+
+    // Temporary compatibility no-op for the pre-Task-4 single-turn UI.
+    func advanceTurn() { }
+
+    // MARK: - Decoding
+
+    private func decodePlayer(from document: QueryDocumentSnapshot) -> Player {
+        let data = document.data()
+        return Player(
+            id: document.documentID,
+            name: data["name"] as? String ?? "",
+            strength: data["strength"] as? Int ?? 0,
+            dexterity: data["dexterity"] as? Int ?? 0,
+            intelligence: data["intelligence"] as? Int ?? 0,
+            hp: data["hp"] as? Int ?? 0,
+            maxHP: data["maxHP"] as? Int
+        )
+    }
+
+    private func decodeAction(from document: QueryDocumentSnapshot) -> CampaignAction {
+        let data = document.data()
+        return CampaignAction(
+            id: document.documentID,
+            playerId: data["playerId"] as? String ?? document.documentID,
+            playerName: data["playerName"] as? String ?? "",
+            text: data["text"] as? String ?? "",
+            isConfirmed: data["isConfirmed"] as? Bool ?? false
+        )
+    }
+
+    private func decodeMessage(from document: QueryDocumentSnapshot) -> CampaignMessage {
+        let data = document.data()
+        return CampaignMessage(
+            id: document.documentID,
+            kind: CampaignMessageKind(rawValue: data["kind"] as? String ?? "") ?? .system,
+            text: data["text"] as? String ?? "",
+            roundNumber: data["roundNumber"] as? Int
+        )
     }
 }
