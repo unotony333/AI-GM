@@ -17,14 +17,24 @@ struct ContentView: View {
     @State private var playerName = ""
     @State private var roomName = "冒險房間"
     @State private var campaignInput = ""
-    @State private var provider = "OpenAI Compatible"
-    @State private var apiFormat: AIAPIFormat = .openAICompatible
-    @State private var baseURL = "https://api.openai.com/v1"
-    @State private var model = "gpt-4o-mini"
+    @State private var providerPreset: AIProviderPreset = .openAI
+    @State private var apiFormat: AIAPIFormat = AIProviderPreset.openAI.apiFormat
+    @State private var baseURL = AIProviderPreset.openAI.baseURL
+    @State private var model = AIProviderPreset.openAI.model
     @State private var apiKey = ""
     @State private var systemPrompt = "你是一個TRPG GM。"
     @State private var actionDraft = ""
     @State private var isSubmitting = false
+    @State private var isShowingAISettings = false
+    @State private var isShowingDiscardAISettingsConfirmation = false
+    @State private var aiSettingsDraft = AISettingsDraft(
+        providerPreset: .openAI,
+        apiFormat: AIProviderPreset.openAI.apiFormat,
+        baseURL: AIProviderPreset.openAI.baseURL,
+        model: AIProviderPreset.openAI.model,
+        apiKey: "",
+        systemPrompt: "你是一個TRPG GM。"
+    )
 
     private var showErrorAlert: Binding<Bool> {
         Binding(
@@ -43,6 +53,25 @@ struct ContentView: View {
             if rhs.id == campaign.hostId { return false }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
+    }
+
+    private var aiSettingsSummary: AISettingsSummary {
+        AISettingsSummary(provider: providerPreset.provider, model: model, apiFormat: apiFormat)
+    }
+
+    private var currentAIConfiguration: AIHostConfiguration {
+        AIHostConfiguration(
+            provider: providerPreset.provider,
+            apiFormat: apiFormat,
+            baseURL: baseURL,
+            model: model,
+            apiKey: apiKey,
+            systemPrompt: systemPrompt
+        )
+    }
+
+    private var hasPendingAISettingsChanges: Bool {
+        aiSettingsDraft.hasChanges(comparedTo: currentAIConfiguration, providerPreset: providerPreset)
     }
 
     var body: some View {
@@ -75,6 +104,9 @@ struct ContentView: View {
             .onChange(of: campaign.currentRoundId) { _, _ in
                 actionDraft = ""
             }
+            .sheet(isPresented: $isShowingAISettings) {
+                aiSettingsSheet
+            }
         }
     }
 
@@ -95,6 +127,10 @@ struct ContentView: View {
                     Text("房主設定模型，玩家一起推進冒險")
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.7))
+                    
+                    Spacer()
+                    
+                    GameTextField(placeholder: "你的暱稱", text: $playerName)
                 }
 
                 hostCard
@@ -108,28 +144,41 @@ struct ContentView: View {
     private var hostCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             sectionTitle("建立房間")
-
-            GameTextField(placeholder: "你的暱稱", text: $playerName)
             GameTextField(placeholder: "房間名稱", text: $roomName)
-            GameTextField(placeholder: "顯示用 Provider 名稱", text: $provider)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("API 格式")
+                Text("AI 設定")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.7))
 
-                Picker("API 格式", selection: $apiFormat) {
-                    ForEach(AIAPIFormat.allCases) { format in
-                        Text(formatLabel(format)).tag(format)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(aiSettingsSummary.title)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+
+                    Text(aiSettingsSummary.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.72))
+
+                    HStack(spacing: 8) {
+                        ForEach(aiSettingsSummary.badges, id: \.self) { badge in
+                            headerChip(title: badge, color: badge == aiSettingsSummary.title ? .pink : .blue)
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-            }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            GameTextField(placeholder: "Base URL，例如 https://api.openai.com/v1", text: $baseURL)
-            GameTextField(placeholder: "Model，例如 gpt-4o-mini / llama3.1", text: $model)
-            GameSecureField(placeholder: "API Key", text: $apiKey)
-            GameTextEditor(placeholder: "System Prompt", text: $systemPrompt, minHeight: 110)
+                Text("供應商預設會自動帶入 Base URL 與建議 Model，細節可在設定畫面中修改。")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.62))
+
+                actionButton(title: "設定 AI", style: .secondary, isDisabled: isSubmitting) {
+                    presentAISettings()
+                }
+            }
 
             Button {
                 createRoom()
@@ -152,6 +201,102 @@ struct ContentView: View {
             .opacity(isSubmitting || playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
         }
         .cardStyle()
+    }
+
+    private var aiSettingsSheet: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.08, green: 0.07, blue: 0.12),
+                        Color(red: 0.12, green: 0.09, blue: 0.17)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 16) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            sectionTitle("AI 供應商")
+
+                            Picker("AI 供應商", selection: providerPresetDraftBinding) {
+                                ForEach(AIProviderPreset.allCases) { preset in
+                                    Text(preset.provider).tag(preset)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.white.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                            Text(aiSettingsDraft.providerPreset.description)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.62))
+                        }
+                        .cardStyle()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            sectionTitle("連線設定")
+
+                            HStack(spacing: 8) {
+                                headerChip(title: aiSettingsDraft.providerPreset.provider, color: .pink)
+                                headerChip(title: formatLabel(aiSettingsDraft.apiFormat), color: .blue)
+                            }
+
+                            GameTextField(placeholder: "Base URL，例如 https://api.openai.com/v1", text: $aiSettingsDraft.baseURL)
+                            GameTextField(placeholder: "Model，例如 gpt-4o-mini / llama3.1", text: $aiSettingsDraft.model)
+                            GameSecureField(placeholder: "API Key", text: $aiSettingsDraft.apiKey)
+                        }
+                        .cardStyle()
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            sectionTitle("主持風格")
+                            GameTextEditor(placeholder: "System Prompt", text: $aiSettingsDraft.systemPrompt, minHeight: 180)
+                        }
+                        .cardStyle()
+                    }
+                    .padding(20)
+                    .padding(.bottom, 24)
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("關閉") {
+                        requestDismissAISettings()
+                    }
+                    .foregroundStyle(.white.opacity(0.8))
+                }
+
+                ToolbarItem(placement: .principal) {
+                    Text("AI 設定")
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
+
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") {
+                        commitAISettings()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .toolbarBackground(.hidden, for: .navigationBar)
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .interactiveDismissDisabled(hasPendingAISettingsChanges)
+        .alert("放棄這次 AI 設定變更？", isPresented: $isShowingDiscardAISettingsConfirmation) {
+            Button("繼續編輯", role: .cancel) { }
+            Button("放棄變更", role: .destructive) {
+                dismissAISettings(forceDiscard: true)
+            }
+        } message: {
+            Text("你在 AI 設定中的修改尚未套用。")
+        }
     }
 
     private var joinCard: some View {
@@ -474,7 +619,7 @@ struct ContentView: View {
         guard !isSubmitting else { return }
 
         let configuration = AIHostConfiguration(
-            provider: provider,
+            provider: providerPreset.provider,
             apiFormat: apiFormat,
             baseURL: baseURL,
             model: model,
@@ -496,8 +641,12 @@ struct ContentView: View {
     private func joinRoom() {
         guard !isSubmitting else { return }
         isSubmitting = true
-        campaign.joinCampaign(campaignId: campaignInput, playerName: playerName)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+
+        let trimmedCampaignId = campaignInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPlayerName = playerName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        Task {
+            await campaign.joinCampaign(campaignId: trimmedCampaignId, playerName: trimmedPlayerName)
             isSubmitting = false
         }
     }
@@ -555,6 +704,46 @@ struct ContentView: View {
         #if os(iOS)
         UIPasteboard.general.string = campaign.campaignId
         #endif
+    }
+
+    private var providerPresetDraftBinding: Binding<AIProviderPreset> {
+        Binding(
+            get: { aiSettingsDraft.providerPreset },
+            set: { preset in
+                aiSettingsDraft.applyPreset(preset)
+            }
+        )
+    }
+
+    private func presentAISettings() {
+        aiSettingsDraft = AISettingsDraft(configuration: currentAIConfiguration, providerPreset: providerPreset)
+        isShowingAISettings = true
+    }
+
+    private func requestDismissAISettings() {
+        if hasPendingAISettingsChanges {
+            isShowingDiscardAISettingsConfirmation = true
+            return
+        }
+
+        dismissAISettings(forceDiscard: false)
+    }
+
+    private func dismissAISettings(forceDiscard: Bool) {
+        if forceDiscard {
+            aiSettingsDraft = AISettingsDraft(configuration: currentAIConfiguration, providerPreset: providerPreset)
+        }
+        isShowingAISettings = false
+    }
+
+    private func commitAISettings() {
+        providerPreset = aiSettingsDraft.providerPreset
+        apiFormat = aiSettingsDraft.apiFormat
+        baseURL = aiSettingsDraft.baseURL
+        model = aiSettingsDraft.model
+        apiKey = aiSettingsDraft.apiKey
+        systemPrompt = aiSettingsDraft.systemPrompt
+        isShowingAISettings = false
     }
 
     // MARK: - UI Helpers

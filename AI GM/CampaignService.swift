@@ -11,6 +11,17 @@ internal import Combine
 
 @MainActor
 final class CampaignService: ObservableObject {
+    enum CampaignServiceError: LocalizedError {
+        case campaignNotFound
+
+        var errorDescription: String? {
+            switch self {
+            case .campaignNotFound:
+                return "找不到這個房間"
+            }
+        }
+    }
+
     private let db = Firestore.firestore()
 
     @Published var campaignId: String?
@@ -108,20 +119,28 @@ final class CampaignService: ObservableObject {
         }
     }
 
-    func joinCampaign(campaignId: String, playerName: String) {
-        self.campaignId = campaignId
+    func joinCampaign(campaignId: String, playerName: String) async {
+        let trimmedCampaignId = campaignId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedPlayerName = playerName.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        Task {
-            do {
-                try await upsertPlayer(
-                    campaignId: campaignId,
-                    playerId: userId,
-                    playerName: playerName
-                )
-                startListening()
-            } catch {
-                localErrorMessage = "加入房間失敗：\(error.localizedDescription)"
+        do {
+            let campaignDocument = db.collection("campaigns").document(trimmedCampaignId)
+            let snapshot = try await campaignDocument.getDocument()
+            guard snapshot.exists else {
+                throw CampaignServiceError.campaignNotFound
             }
+
+            try await upsertPlayer(
+                campaignId: trimmedCampaignId,
+                playerId: userId,
+                playerName: trimmedPlayerName
+            )
+
+            self.campaignId = trimmedCampaignId
+            startListening()
+        } catch {
+            self.campaignId = nil
+            localErrorMessage = "加入房間失敗：\(error.localizedDescription)"
         }
     }
 

@@ -114,10 +114,10 @@ class AIService {
         if currentPath == "/" {
             return baseURL.appending(path: normalizedEndpoint.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         }
-        if currentPath == normalizedEndpoint {
+        if currentPath.hasSuffix(normalizedEndpoint) {
             return baseURL
         }
-        if currentPath == normalizedParent {
+        if currentPath.hasSuffix(normalizedParent) {
             let suffix = normalizedEndpoint.replacingOccurrences(of: normalizedParent, with: "")
             return baseURL.appending(path: suffix.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
         }
