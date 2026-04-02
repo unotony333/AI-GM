@@ -60,6 +60,7 @@ class AIService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
+        request.timeoutInterval = 300 // 增加 Timeout 時間以適應本地模型較慢的推理速度
 
         let trimmedAPIKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedAPIKey.isEmpty {

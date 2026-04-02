@@ -842,7 +842,7 @@ struct ContentView: View {
         switch phase {
         case .lobby: return "大廳"
         case .starting: return "開場中"
-        case .collectingActions: return "收集行動"
+        case .collectingActions: return "等待行動"
         case .resolvingTurn: return "結算中"
         case .finished: return "已結束"
         }
