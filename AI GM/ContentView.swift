@@ -12,6 +12,7 @@ import UIKit
 
 struct ContentView: View {
     @StateObject private var campaign = CampaignService()
+    @StateObject private var userService = UserService.shared
     private let engine = GameEngine()
 
     @State private var playerName = ""
@@ -27,6 +28,7 @@ struct ContentView: View {
     @State private var isSubmitting = false
     @State private var isShowingAISettings = false
     @State private var isShowingDiscardAISettingsConfirmation = false
+    @State private var hasLoadedSavedAISettings = false
     @State private var aiSettingsDraft = AISettingsDraft(
         providerPreset: .openAI,
         apiFormat: AIProviderPreset.openAI.apiFormat,
@@ -57,6 +59,10 @@ struct ContentView: View {
 
     private var aiSettingsSummary: AISettingsSummary {
         AISettingsSummary(provider: providerPreset.provider, model: model, apiFormat: apiFormat)
+    }
+
+    private var firebaseBlockingMessage: String? {
+        userService.authErrorMessage ?? userService.sessionStatus.blockingMessage
     }
 
     private var currentAIConfiguration: AIHostConfiguration {
@@ -104,6 +110,9 @@ struct ContentView: View {
             .onChange(of: campaign.currentRoundId) { _, _ in
                 actionDraft = ""
             }
+            .onAppear {
+                restoreLastUsedAISettingsIfNeeded()
+            }
             .sheet(isPresented: $isShowingAISettings) {
                 aiSettingsSheet
             }
@@ -142,9 +151,15 @@ struct ContentView: View {
     }
 
     private var hostCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 16) {
             sectionTitle("建立房間")
             GameTextField(placeholder: "房間名稱", text: $roomName)
+
+            if let firebaseBlockingMessage {
+                Text(firebaseBlockingMessage)
+                    .font(.caption)
+                    .foregroundStyle(.orange.opacity(0.9))
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("AI 設定")
@@ -197,8 +212,17 @@ struct ContentView: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .disabled(isSubmitting || playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(isSubmitting || playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.55 : 1)
+            .disabled(
+                isSubmitting ||
+                firebaseBlockingMessage != nil ||
+                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            )
+            .opacity(
+                isSubmitting ||
+                firebaseBlockingMessage != nil ||
+                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? 0.55 : 1
+            )
         }
         .cardStyle()
     }
@@ -313,6 +337,12 @@ struct ContentView: View {
                     .foregroundStyle(.white.opacity(0.6))
             }
 
+            if let firebaseBlockingMessage {
+                Text(firebaseBlockingMessage)
+                    .font(.caption)
+                    .foregroundStyle(.orange.opacity(0.9))
+            }
+
             GameTextField(placeholder: "房間 ID", text: $campaignInput)
 
             Button {
@@ -328,11 +358,13 @@ struct ContentView: View {
             }
             .disabled(
                 isSubmitting ||
+                firebaseBlockingMessage != nil ||
                 playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             )
             .opacity(
                 isSubmitting ||
+                firebaseBlockingMessage != nil ||
                 playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? 0.55 : 1
@@ -744,6 +776,34 @@ struct ContentView: View {
         apiKey = aiSettingsDraft.apiKey
         systemPrompt = aiSettingsDraft.systemPrompt
         isShowingAISettings = false
+    }
+
+    private func restoreLastUsedAISettingsIfNeeded() {
+        guard !hasLoadedSavedAISettings else { return }
+        hasLoadedSavedAISettings = true
+
+        do {
+            guard let configuration = try AIHostConfigurationStore.loadLastUsed() else { return }
+            applyAIConfiguration(configuration)
+        } catch {
+            campaign.localErrorMessage = "讀取上次 AI 設定失敗：\(error.localizedDescription)"
+        }
+    }
+
+    private func applyAIConfiguration(_ configuration: AIHostConfiguration) {
+        let canonicalConfiguration = configuration.canonicalized()
+        let inferredPreset = AIProviderPreset.inferred(from: canonicalConfiguration)
+
+        providerPreset = inferredPreset
+        apiFormat = canonicalConfiguration.apiFormat
+        baseURL = canonicalConfiguration.baseURL
+        model = canonicalConfiguration.model
+        apiKey = canonicalConfiguration.apiKey
+        systemPrompt = canonicalConfiguration.systemPrompt
+        aiSettingsDraft = AISettingsDraft(
+            configuration: canonicalConfiguration,
+            providerPreset: inferredPreset
+        )
     }
 
     // MARK: - UI Helpers

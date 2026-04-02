@@ -129,6 +129,24 @@ enum AIProviderPreset: String, CaseIterable, Identifiable {
             systemPrompt: configuration.systemPrompt
         )
     }
+
+    static func inferred(from configuration: AIHostConfiguration) -> AIProviderPreset {
+        let canonicalConfiguration = configuration.canonicalized()
+
+        if let providerMatch = AIProviderPreset.allCases.first(where: {
+            $0.provider == canonicalConfiguration.provider &&
+            $0.apiFormat == canonicalConfiguration.apiFormat
+        }) {
+            return providerMatch
+        }
+
+        switch canonicalConfiguration.apiFormat {
+        case .openAICompatible:
+            return .customOpenAICompatible
+        case .ollama:
+            return .customOllama
+        }
+    }
 }
 
 struct AIHostConfiguration: Codable, Equatable {
@@ -282,20 +300,41 @@ extension AIAPIFormat {
 
 enum AIHostConfigurationStore {
     private static let defaults = UserDefaults.standard
+    private static let lastUsedKey = "hostAIConfig.lastUsed"
 
     private static func key(campaignId: String) -> String {
         "hostAIConfig.\(campaignId)"
     }
 
     static func save(_ configuration: AIHostConfiguration, campaignId: String) throws {
-        let canonicalConfiguration = try configuration.validated()
-        let encoder = JSONEncoder()
-        let data = try encoder.encode(canonicalConfiguration)
-        defaults.set(data, forKey: key(campaignId: campaignId))
+        try save(configuration, forKey: key(campaignId: campaignId))
     }
 
     static func load(campaignId: String) throws -> AIHostConfiguration? {
-        guard let data = defaults.data(forKey: key(campaignId: campaignId)) else {
+        try load(forKey: key(campaignId: campaignId))
+    }
+
+    static func saveLastUsed(_ configuration: AIHostConfiguration) throws {
+        try save(configuration, forKey: lastUsedKey)
+    }
+
+    static func loadLastUsed() throws -> AIHostConfiguration? {
+        try load(forKey: lastUsedKey)
+    }
+
+    static func clearLastUsed() {
+        defaults.removeObject(forKey: lastUsedKey)
+    }
+
+    private static func save(_ configuration: AIHostConfiguration, forKey key: String) throws {
+        let canonicalConfiguration = try configuration.validated()
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(canonicalConfiguration)
+        defaults.set(data, forKey: key)
+    }
+
+    private static func load(forKey key: String) throws -> AIHostConfiguration? {
+        guard let data = defaults.data(forKey: key) else {
             return nil
         }
 

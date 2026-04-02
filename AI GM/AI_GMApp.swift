@@ -13,6 +13,7 @@ struct AI_GMApp: App {
     
     init() {
         FirebaseApp.configure()
+        _ = UserService.shared
     }
     
     var body: some Scene {

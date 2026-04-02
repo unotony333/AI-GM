@@ -6,19 +6,90 @@
 //
 
 import Foundation
+import FirebaseAuth
+internal import Combine
 
-class UserService {
+@MainActor
+final class UserService: ObservableObject {
     static let shared = UserService()
 
-    let userId: String
+    @Published private(set) var userId: String?
+    @Published private(set) var isAuthenticating = true
+    @Published private(set) var authErrorMessage: String?
+
+    private var authStateListener: AuthStateDidChangeListenerHandle?
+
+    var sessionStatus: FirebaseSessionStatus {
+        FirebaseSessionGate.status(authUserID: userId, isAuthenticating: isAuthenticating)
+    }
 
     private init() {
-        if let saved = UserDefaults.standard.string(forKey: "userId") {
-            userId = saved
-        } else {
-            let newId = UUID().uuidString
-            UserDefaults.standard.set(newId, forKey: "userId")
-            userId = newId
+        authStateListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            Task { @MainActor in
+                guard let self else { return }
+                self.userId = user?.uid
+                self.isAuthenticating = false
+
+                if user != nil {
+                    self.authErrorMessage = nil
+                }
+            }
+        }
+
+        Task {
+            await ensureSignedIn()
+        }
+    }
+
+    deinit {
+        if let authStateListener {
+            Auth.auth().removeStateDidChangeListener(authStateListener)
+        }
+    }
+
+    func ensureSignedIn() async {
+        if let currentUser = Auth.auth().currentUser {
+            userId = currentUser.uid
+            isAuthenticating = false
+            authErrorMessage = nil
+            return
+        }
+
+        isAuthenticating = true
+
+        do {
+            let result = try await signInAnonymously()
+            userId = result.user.uid
+            isAuthenticating = false
+            authErrorMessage = nil
+        } catch {
+            userId = nil
+            isAuthenticating = false
+            
+            // 將錯誤轉為 NSError 並印出詳細的 userInfo 以便除錯
+            let nsError = error as NSError
+            print("❌ Firebase 匿名登入詳細錯誤：\(nsError)")
+            print("❌ UserInfo：\(nsError.userInfo)")
+            
+            authErrorMessage = "Firebase 匿名登入失敗：\(error.localizedDescription)"
+        }
+    }
+
+    private func signInAnonymously() async throws -> AuthDataResult {
+        try await withCheckedThrowingContinuation { continuation in
+            Auth.auth().signInAnonymously { result, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                guard let result else {
+                    continuation.resume(throwing: URLError(.userAuthenticationRequired))
+                    return
+                }
+
+                continuation.resume(returning: result)
+            }
         }
     }
 }

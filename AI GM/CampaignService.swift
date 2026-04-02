@@ -13,11 +13,14 @@ internal import Combine
 final class CampaignService: ObservableObject {
     enum CampaignServiceError: LocalizedError {
         case campaignNotFound
+        case unavailableUserSession(String)
 
         var errorDescription: String? {
             switch self {
             case .campaignNotFound:
                 return "找不到這個房間"
+            case .unavailableUserSession(let message):
+                return message
             }
         }
     }
@@ -41,8 +44,6 @@ final class CampaignService: ObservableObject {
     // Temporary compatibility state for the pre-Task-4 view.
     @Published var currentTurn: String = ""
 
-    let userId = UserService.shared.userId
-
     private var listeners: [ListenerRegistration] = []
     private var currentRoundListener: ListenerRegistration?
     private var currentRoundActionsListener: ListenerRegistration?
@@ -55,7 +56,8 @@ final class CampaignService: ObservableObject {
     }
 
     var isHost: Bool {
-        hostId == userId
+        guard let userId = UserService.shared.sessionStatus.userID else { return false }
+        return hostId == userId
     }
 
     var readyPlayerCount: Int {
@@ -67,18 +69,21 @@ final class CampaignService: ObservableObject {
     }
 
     var myConfirmedAction: CampaignAction? {
-        confirmedActions.first { $0.playerId == userId }
+        guard let userId = UserService.shared.sessionStatus.userID else { return nil }
+        return confirmedActions.first { $0.playerId == userId }
     }
 
     // MARK: - Create / Join
 
     func createCampaign(name: String, playerName: String, configuration: AIHostConfiguration) async {
         do {
+            let userId = try requireUserID()
             let validatedConfiguration = try configuration.validated()
             let doc = db.collection("campaigns").document()
             let now = Timestamp()
 
             try AIHostConfigurationStore.save(validatedConfiguration, campaignId: doc.documentID)
+            try AIHostConfigurationStore.saveLastUsed(validatedConfiguration)
 
             try await doc.setData([
                 "name": name,
@@ -124,6 +129,7 @@ final class CampaignService: ObservableObject {
         let trimmedPlayerName = playerName.trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
+            let userId = try requireUserID()
             let campaignDocument = db.collection("campaigns").document(trimmedCampaignId)
             let snapshot = try await campaignDocument.getDocument()
             guard snapshot.exists else {
@@ -310,6 +316,7 @@ final class CampaignService: ObservableObject {
 
     func confirmAction(text: String) async throws {
         guard let campaignId, let currentRoundId else { return }
+        let userId = try requireUserID()
 
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else { return }
@@ -334,6 +341,7 @@ final class CampaignService: ObservableObject {
 
     func cancelConfirmedAction() async throws {
         guard let campaignId, let currentRoundId else { return }
+        let userId = try requireUserID()
 
         try await db.collection("campaigns")
             .document(campaignId)
@@ -445,6 +453,19 @@ final class CampaignService: ObservableObject {
         try await db.collection("campaigns")
             .document(campaignId)
             .setData(data, merge: true)
+    }
+
+    private func requireUserID() throws -> String {
+        let userService = UserService.shared
+        let status = userService.sessionStatus
+
+        if let userId = status.userID {
+            return userId
+        }
+
+        throw CampaignServiceError.unavailableUserSession(
+            userService.authErrorMessage ?? status.blockingMessage ?? "尚未連線到 Firebase，請稍後再試。"
+        )
     }
 
     // Temporary compatibility no-op for the pre-Task-4 single-turn UI.
