@@ -15,9 +15,9 @@ struct ContentView: View {
     @StateObject private var userService = UserService.shared
     private let engine = GameEngine()
 
-    @State private var playerName = ""
+    @AppStorage("savedPlayerName") private var playerName = ""
     @State private var roomName = "冒險房間"
-    @State private var campaignInput = ""
+    @AppStorage("savedRoomID") private var campaignInput = ""
     @State private var providerPreset: AIProviderPreset = .openAI
     @State private var apiFormat: AIAPIFormat = AIProviderPreset.openAI.apiFormat
     @State private var baseURL = AIProviderPreset.openAI.baseURL
@@ -29,6 +29,7 @@ struct ContentView: View {
     @State private var isShowingAISettings = false
     @State private var isShowingDiscardAISettingsConfirmation = false
     @State private var hasLoadedSavedAISettings = false
+    @State private var isShowingRoomStatus = false
     @State private var aiSettingsDraft = AISettingsDraft(
         providerPreset: .openAI,
         apiFormat: AIProviderPreset.openAI.apiFormat,
@@ -110,6 +111,11 @@ struct ContentView: View {
             .onChange(of: campaign.currentRoundId) { _, _ in
                 actionDraft = ""
             }
+            .onChange(of: campaign.campaignId) { _, newCampaignId in
+                if let newCampaignId = newCampaignId {
+                    campaignInput = newCampaignId
+                }
+            }
             .onAppear {
                 restoreLastUsedAISettingsIfNeeded()
             }
@@ -142,8 +148,13 @@ struct ContentView: View {
                     GameTextField(placeholder: "你的暱稱", text: $playerName)
                 }
 
-                hostCard
-                joinCard
+                if campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    hostCard
+                    joinCard
+                } else {
+                    joinCard
+                    hostCard
+                }
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 30)
@@ -186,7 +197,7 @@ struct ContentView: View {
                 .background(Color.white.opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                Text("供應商預設會自動帶入 Base URL 與建議 Model，細節可在設定畫面中修改。")
+                Text("預設會自動帶入 Base URL 與建議 Model，API Key要自行輸入。")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.62))
 
@@ -327,7 +338,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 16) {
             sectionTitle("加入房間")
 
-            Text("其他玩家只需要暱稱與房間 ID，會看到房主使用的 provider 與 model。")
+            Text("加回房間時要確保暱稱與先前相同。")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.7))
 
@@ -377,15 +388,69 @@ struct ContentView: View {
         VStack(spacing: 0) {
             headerBar
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    playerStatusCard
-                    actionStatusCard
-                    messageList
-                    actionComposerCard
+            ZStack(alignment: .top) {
+                // 主要捲動區域與底部輸入框
+                VStack(spacing: 0) {
+                    Color.clear.frame(height: 52) // 替收合的狀態列表預留空間
+                    
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            messageList
+                                .padding(16)
+                        }
+                        .scrollDismissesKeyboard(.interactively)
+                    }
+
+                    VStack(spacing: 0) {
+                        Divider().background(Color.white.opacity(0.15))
+                        actionComposerCard
+                            .padding(16)
+                            .background(Color.black.opacity(0.2))
+                    }
                 }
-                .padding(16)
-                .padding(.bottom, 20)
+
+                // 懸浮在上面的狀態列表 (DisclosureGroup)
+                VStack(spacing: 0) {
+                    DisclosureGroup(isExpanded: $isShowingRoomStatus) {
+                        VStack(spacing: 16) {
+                            playerStatusCard
+                            actionStatusCard
+                        }
+                        .padding(.top, 12)
+                        .padding(.bottom, 4)
+                    } label: {
+                        HStack {
+                            Image(systemName: "info.circle.fill")
+                            Text("房間與玩家狀態")
+                                .font(.headline)
+                            Spacer()
+                            if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
+                                Text("可繼續")
+                                    .font(.caption.weight(.bold))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.orange)
+                                    .clipShape(Capsule())
+                                    .foregroundStyle(.white)
+                            } else if campaign.phase == .lobby && campaign.isHost {
+                                Text("可開始")
+                                    .font(.caption.weight(.bold))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Color.blue)
+                                    .clipShape(Capsule())
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .foregroundStyle(.white.opacity(0.85))
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(Color(red: 0.12, green: 0.1, blue: 0.16)) // 填色避免捲動內容透出
+                    
+                    Divider().background(Color.white.opacity(0.15))
+                }
+                .shadow(color: isShowingRoomStatus ? .black.opacity(0.5) : .clear, radius: 8, y: 4)
             }
         }
     }
@@ -521,15 +586,13 @@ struct ContentView: View {
     }
 
     private var messageList: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("劇情紀錄")
-
+        LazyVStack(spacing: 16) {
             if campaign.typedMessages.isEmpty {
                 Text("房主開始遊戲後，AI 的開場白會出現在這裡。")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.6))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(16)
                     .background(Color.white.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else {
@@ -538,7 +601,6 @@ struct ContentView: View {
                 }
             }
         }
-        .cardStyle()
     }
 
     private func messageBubble(_ message: CampaignMessage) -> some View {
@@ -568,22 +630,24 @@ struct ContentView: View {
 
     private var actionComposerCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("本回合行動")
-
             switch campaign.phase {
             case .lobby:
                 Text(campaign.isHost ? "玩家都到齊後，由房主開始遊戲。" : "等待房主開始遊戲。")
+                    .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .center)
 
             case .starting:
-                Text("房主正在向 AI 取得開場白。")
+                Text("房主正在向 AI 取得開場白...")
+                    .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .center)
 
             case .collectingActions:
                 if let confirmed = campaign.myConfirmedAction {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("你已確認本回合行動：")
-                            .font(.subheadline)
+                            .font(.caption)
                             .foregroundStyle(.white.opacity(0.7))
 
                         Text(confirmed.text)
@@ -599,10 +663,16 @@ struct ContentView: View {
                     }
                 } else {
                     VStack(spacing: 12) {
+                        HStack {
+                            Text("本回合你的行動")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.7))
+                            Spacer()
+                        }
+                        
                         GameTextEditor(
                             placeholder: "描述你這回合想做的事",
-                            text: $actionDraft,
-                            minHeight: 110
+                            text: $actionDraft
                         )
 
                         actionButton(
@@ -616,12 +686,16 @@ struct ContentView: View {
                 }
 
             case .resolvingTurn:
-                Text("房主正在把所有已確認行動交給 AI 結算。")
+                Text("房主正在把所有已確認行動交給 AI 結算...")
+                    .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .center)
 
             case .finished:
                 Text("這場冒險已經結束。")
+                    .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
         }
         .cardStyle()
@@ -969,29 +1043,27 @@ struct GameSecureField: View {
 struct GameTextEditor: View {
     let placeholder: String
     @Binding var text: String
-    let minHeight: CGFloat
+    var minHeight: CGFloat? = nil
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.1))
-
             if text.isEmpty {
                 Text(placeholder)
                     .foregroundStyle(.gray)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
+                    .padding(.horizontal, 13)
+                    .padding(.vertical, 16)
             }
-
-            TextEditor(text: $text)
-                .scrollContentBackground(.hidden)
+            
+            TextField("", text: $text, axis: .vertical)
                 .textInputAutocapitalization(.sentences)
                 .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .lineLimit(2...7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 16)
                 .frame(minHeight: minHeight)
         }
-        .frame(minHeight: minHeight)
+        .background(Color.white.opacity(0.1))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
