@@ -30,6 +30,7 @@ struct ContentView: View {
     @State private var isShowingDiscardAISettingsConfirmation = false
     @State private var hasLoadedSavedAISettings = false
     @State private var isShowingRoomStatus = false
+    @State private var isAtBottom = true
     @State private var aiSettingsDraft = AISettingsDraft(
         providerPreset: .openAI,
         apiFormat: AIProviderPreset.openAI.apiFormat,
@@ -124,14 +125,14 @@ struct ContentView: View {
             }
         }
     }
-
+	
     private var lobbyView: some View {
         ScrollView {
             VStack(spacing: 24) {
                 Spacer().frame(height: 28)
 
                 VStack(spacing: 10) {
-                    Image(systemName: "dice.3d.fill")
+                    Image(systemName: "dice.fill")
                         .font(.system(size: 76))
                         .foregroundStyle(.pink, .orange)
 
@@ -338,15 +339,9 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 16) {
             sectionTitle("加入房間")
 
-            Text("加回房間時要確保暱稱與先前相同。")
+            Text("可加回舊房間延續冒險。")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.7))
-
-            if !playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text("目前暱稱：\(playerName)")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.6))
-            }
 
             if let firebaseBlockingMessage {
                 Text(firebaseBlockingMessage)
@@ -399,6 +394,36 @@ struct ContentView: View {
                                 .padding(16)
                         }
                         .scrollDismissesKeyboard(.interactively)
+                        .onChange(of: campaign.typedMessages) { _, _ in
+                            if isAtBottom {
+                                withAnimation {
+                                    proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
+                                }
+                            }
+                        }
+                        .onChange(of: campaign.phase) { _, _ in
+                            if isAtBottom {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                    withAnimation {
+                                        proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
+                                    }
+                                }
+                            }
+                        }
+                        .onChange(of: campaign.myConfirmedAction?.text) { _, _ in
+                            if isAtBottom {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                    withAnimation {
+                                        proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
+                                    }
+                                }
+                            }
+                        }
+                        .onAppear {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
+                            }
+                        }
                     }
 
                     VStack(spacing: 0) {
@@ -600,6 +625,16 @@ struct ContentView: View {
                     messageBubble(message)
                 }
             }
+            
+            Color.clear
+                .frame(height: 1)
+                .id("BOTTOM_MARKER")
+                .onAppear {
+                    isAtBottom = true
+                }
+                .onDisappear {
+                    isAtBottom = false
+                }
         }
     }
 
