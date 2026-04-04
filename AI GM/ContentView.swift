@@ -506,13 +506,26 @@ struct ContentView: View {
                 Spacer()
 
                 if campaign.isHost {
-                    Text("房主")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color.orange.opacity(0.28))
-                        .clipShape(Capsule())
+                    HStack(spacing: 8) {
+                        Button {
+                            presentAISettings()
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.subheadline)
+                                .foregroundStyle(.white)
+                                .padding(8)
+                                .background(Color.white.opacity(0.12))
+                                .clipShape(Circle())
+                        }
+
+                        Text("房主")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color.orange.opacity(0.28))
+                            .clipShape(Capsule())
+                    }
                 }
             }
 
@@ -885,6 +898,13 @@ struct ContentView: View {
         apiKey = aiSettingsDraft.apiKey
         systemPrompt = aiSettingsDraft.systemPrompt
         isShowingAISettings = false
+
+        // If in game and is host, update the configuration in CampaignService
+        if campaign.campaignId != nil && campaign.isHost {
+            Task {
+                await campaign.updateAIConfiguration(currentAIConfiguration)
+            }
+        }
     }
 
     private func restoreLastUsedAISettingsIfNeeded() {

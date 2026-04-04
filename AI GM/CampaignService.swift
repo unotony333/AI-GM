@@ -167,6 +167,29 @@ final class CampaignService: ObservableObject {
             ], merge: true)
     }
 
+    func updateAIConfiguration(_ configuration: AIHostConfiguration) async {
+        guard isHost, let campaignId else { return }
+
+        do {
+            let validatedConfiguration = try configuration.validated()
+            
+            try AIHostConfigurationStore.save(validatedConfiguration, campaignId: campaignId)
+            
+            try AIHostConfigurationStore.saveLastUsed(validatedConfiguration)
+            
+            try await updateCampaign([
+                "provider": validatedConfiguration.provider,
+                "model": validatedConfiguration.model,
+                "updatedAt": Timestamp()
+            ])
+            
+            self.provider = validatedConfiguration.provider
+            self.model = validatedConfiguration.model
+        } catch {
+            localErrorMessage = "更新 AI 設定失敗：\(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Listening
 
     func startListening() {
