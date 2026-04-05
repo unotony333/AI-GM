@@ -27,7 +27,6 @@ struct ContentView: View {
     @State private var actionDraft = ""
     @State private var isSubmitting = false
     @State private var isShowingAISettings = false
-    @State private var isShowingDiscardAISettingsConfirmation = false
     @State private var hasLoadedSavedAISettings = false
     @State private var isShowingRoomStatus = false
     @State private var isAtBottom = true
@@ -49,14 +48,6 @@ struct ContentView: View {
                 }
             }
         )
-    }
-
-    private var sortedPlayers: [Player] {
-        campaign.players.sorted { lhs, rhs in
-            if lhs.id == campaign.hostId { return true }
-            if rhs.id == campaign.hostId { return false }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
     }
 
     private var aiSettingsSummary: AISettingsSummary {
@@ -82,24 +73,41 @@ struct ContentView: View {
         aiSettingsDraft.hasChanges(comparedTo: currentAIConfiguration, providerPreset: providerPreset)
     }
 
+    // MARK: - Body
+
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.09, green: 0.08, blue: 0.14),
-                        Color(red: 0.14, green: 0.09, blue: 0.18),
-                        Color(red: 0.08, green: 0.1, blue: 0.16)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                appBackgroundGradient
+                    .ignoresSafeArea()
 
                 if campaign.campaignId == nil {
-                    lobbyView
+                    LobbyView(
+                        campaign: campaign,
+                        playerName: $playerName,
+                        roomName: $roomName,
+                        campaignInput: $campaignInput,
+                        isSubmitting: $isSubmitting,
+                        aiSettingsSummary: aiSettingsSummary,
+                        firebaseBlockingMessage: firebaseBlockingMessage,
+                        onCreateRoom: createRoom,
+                        onJoinRoom: joinRoom,
+                        onOpenAISettings: presentAISettings
+                    )
                 } else {
-                    gameView
+                    GameView(
+                        campaign: campaign,
+                        actionDraft: $actionDraft,
+                        isSubmitting: $isSubmitting,
+                        isShowingRoomStatus: $isShowingRoomStatus,
+                        isAtBottom: $isAtBottom,
+                        onStartGame: startGame,
+                        onContinueRound: continueRound,
+                        onConfirmAction: confirmCurrentAction,
+                        onCancelConfirmation: cancelConfirmation,
+                        onCopyRoomID: copyRoomID,
+                        onOpenAISettings: presentAISettings
+                    )
                 }
             }
             .alert("錯誤", isPresented: showErrorAlert) {
@@ -121,649 +129,13 @@ struct ContentView: View {
                 restoreLastUsedAISettingsIfNeeded()
             }
             .sheet(isPresented: $isShowingAISettings) {
-                aiSettingsSheet
-            }
-        }
-    }
-	
-    private var lobbyView: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                Spacer().frame(height: 28)
-
-                VStack(spacing: 10) {
-                    Image(systemName: "dice.fill")
-                        .font(.system(size: 76))
-                        .foregroundStyle(.pink, .orange)
-
-                    Text("AI GM")
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundStyle(.white)
-
-                    Text("房主設定模型，玩家一起推進冒險")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                    
-                    Spacer()
-                    
-                    GameTextField(placeholder: "你的暱稱", text: $playerName)
-                }
-
-                if campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    hostCard
-                    joinCard
-                } else {
-                    joinCard
-                    hostCard
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 30)
-        }
-    }
-
-    private var hostCard: some View {
-            VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("建立房間")
-            GameTextField(placeholder: "房間名稱", text: $roomName)
-
-            if let firebaseBlockingMessage {
-                Text(firebaseBlockingMessage)
-                    .font(.caption)
-                    .foregroundStyle(.orange.opacity(0.9))
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("AI 設定")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(aiSettingsSummary.title)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-
-                    Text(aiSettingsSummary.subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.72))
-
-                    HStack(spacing: 8) {
-                        ForEach(aiSettingsSummary.badges, id: \.self) { badge in
-                            headerChip(title: badge, color: badge == aiSettingsSummary.title ? .pink : .blue)
-                        }
-                    }
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                Text("預設會自動帶入 Base URL 與建議 Model，API Key要自行輸入。")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.62))
-
-                actionButton(title: "設定 AI", style: .secondary, isDisabled: isSubmitting) {
-                    presentAISettings()
-                }
-            }
-
-            Button {
-                createRoom()
-            } label: {
-                Text(isSubmitting ? "建立中..." : "由房主建立房間")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(
-                        LinearGradient(
-                            colors: [.orange, .pink],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .disabled(
-                isSubmitting ||
-                firebaseBlockingMessage != nil ||
-                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            )
-            .opacity(
-                isSubmitting ||
-                firebaseBlockingMessage != nil ||
-                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? 0.55 : 1
-            )
-        }
-        .cardStyle()
-    }
-
-    private var aiSettingsSheet: some View {
-        NavigationStack {
-            ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.08, green: 0.07, blue: 0.12),
-                        Color(red: 0.12, green: 0.09, blue: 0.17)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
+                AISettingsSheet(
+                    draft: $aiSettingsDraft,
+                    hasPendingChanges: hasPendingAISettingsChanges,
+                    onCommit: commitAISettings,
+                    onDismiss: dismissAISettings
                 )
-                .ignoresSafeArea()
-
-                ScrollView {
-                    VStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            sectionTitle("AI 供應商")
-
-                            Picker("AI 供應商", selection: providerPresetDraftBinding) {
-                                ForEach(AIProviderPreset.allCases) { preset in
-                                    Text(preset.provider).tag(preset)
-                                }
-                            }
-                            .pickerStyle(.menu)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                            Text(aiSettingsDraft.providerPreset.description)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.62))
-                        }
-                        .cardStyle()
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            sectionTitle("連線設定")
-
-                            HStack(spacing: 8) {
-                                headerChip(title: aiSettingsDraft.providerPreset.provider, color: .pink)
-                                headerChip(title: formatLabel(aiSettingsDraft.apiFormat), color: .blue)
-                            }
-
-                            GameTextField(placeholder: "Base URL，例如 https://api.openai.com/v1", text: $aiSettingsDraft.baseURL)
-                            GameTextField(placeholder: "Model，例如 gpt-4o-mini / llama3.1", text: $aiSettingsDraft.model)
-                            GameSecureField(placeholder: "API Key", text: $aiSettingsDraft.apiKey)
-                        }
-                        .cardStyle()
-
-                        VStack(alignment: .leading, spacing: 12) {
-                            sectionTitle("主持風格")
-                            GameTextEditor(placeholder: "System Prompt", text: $aiSettingsDraft.systemPrompt, minHeight: 180)
-                        }
-                        .cardStyle()
-                    }
-                    .padding(20)
-                    .padding(.bottom, 24)
-                }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("關閉") {
-                        requestDismissAISettings()
-                    }
-                    .foregroundStyle(.white.opacity(0.8))
-                }
-
-                ToolbarItem(placement: .principal) {
-                    Text("AI 設定")
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                }
-
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") {
-                        commitAISettings()
-                    }
-                    .fontWeight(.semibold)
-                }
-            }
-            .toolbarBackground(.hidden, for: .navigationBar)
-        }
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled(hasPendingAISettingsChanges)
-        .alert("放棄這次 AI 設定變更？", isPresented: $isShowingDiscardAISettingsConfirmation) {
-            Button("繼續編輯", role: .cancel) { }
-            Button("放棄變更", role: .destructive) {
-                dismissAISettings(forceDiscard: true)
-            }
-        } message: {
-            Text("你在 AI 設定中的修改尚未套用。")
-        }
-    }
-
-    private var joinCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            sectionTitle("加入房間")
-
-            Text("可加回舊房間延續冒險。")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.7))
-
-            if let firebaseBlockingMessage {
-                Text(firebaseBlockingMessage)
-                    .font(.caption)
-                    .foregroundStyle(.orange.opacity(0.9))
-            }
-
-            GameTextField(placeholder: "房間 ID", text: $campaignInput)
-
-            Button {
-                joinRoom()
-            } label: {
-                Text(isSubmitting ? "加入中..." : "加入房間")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Color.white.opacity(0.12))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .disabled(
-                isSubmitting ||
-                firebaseBlockingMessage != nil ||
-                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            )
-            .opacity(
-                isSubmitting ||
-                firebaseBlockingMessage != nil ||
-                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? 0.55 : 1
-            )
-        }
-        .cardStyle()
-    }
-
-    private var gameView: some View {
-        VStack(spacing: 0) {
-            headerBar
-
-            ZStack(alignment: .top) {
-                // 主要捲動區域與底部輸入框
-                VStack(spacing: 0) {
-                    Color.clear.frame(height: 52) // 替收合的狀態列表預留空間
-                    
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            messageList
-                                .padding(16)
-                        }
-                        .scrollDismissesKeyboard(.interactively)
-                        .onChange(of: campaign.typedMessages) { _, _ in
-                            if isAtBottom {
-                                withAnimation {
-                                    proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
-                                }
-                            }
-                        }
-                        .onChange(of: campaign.phase) { _, _ in
-                            if isAtBottom {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                    withAnimation {
-                                        proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
-                                    }
-                                }
-                            }
-                        }
-                        .onChange(of: campaign.myConfirmedAction?.text) { _, _ in
-                            if isAtBottom {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                    withAnimation {
-                                        proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
-                                    }
-                                }
-                            }
-                        }
-                        .onAppear {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
-                            }
-                        }
-                    }
-
-                    VStack(spacing: 0) {
-                        Divider().background(Color.white.opacity(0.15))
-                        actionComposerCard
-                            .padding(16)
-                            .background(Color.black.opacity(0.2))
-                    }
-                }
-
-                // 懸浮在上面的狀態列表 (DisclosureGroup)
-                VStack(spacing: 0) {
-                    DisclosureGroup(isExpanded: $isShowingRoomStatus) {
-                        VStack(spacing: 16) {
-                            playerStatusCard
-                            actionStatusCard
-                        }
-                        .padding(.top, 12)
-                        .padding(.bottom, 4)
-                    } label: {
-                        HStack {
-                            Image(systemName: "info.circle.fill")
-                            Text("房間與玩家狀態")
-                                .font(.headline)
-                            Spacer()
-                            if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
-                                Text("可繼續")
-                                    .font(.caption.weight(.bold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.orange)
-                                    .clipShape(Capsule())
-                                    .foregroundStyle(.white)
-                            } else if campaign.phase == .lobby && campaign.isHost {
-                                Text("可開始")
-                                    .font(.caption.weight(.bold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.blue)
-                                    .clipShape(Capsule())
-                                    .foregroundStyle(.white)
-                            }
-                        }
-                        .foregroundStyle(.white.opacity(0.85))
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color(red: 0.12, green: 0.1, blue: 0.16)) // 填色避免捲動內容透出
-                    
-                    Divider().background(Color.white.opacity(0.15))
-                }
-                .shadow(color: isShowingRoomStatus ? .black.opacity(0.5) : .clear, radius: 8, y: 4)
-            }
-        }
-    }
-
-    private var headerBar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(campaign.campaignName.isEmpty ? "房間" : campaign.campaignName)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
-
-                    HStack(spacing: 8) {
-                        Text(campaign.campaignId ?? "未知")
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        Button {
-                            copyRoomID()
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-                    }
-                }
-
-                Spacer()
-
-                if campaign.isHost {
-                    HStack(spacing: 8) {
-                        Button {
-                            presentAISettings()
-                        } label: {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.subheadline)
-                                .foregroundStyle(.white)
-                                .padding(8)
-                                .background(Color.white.opacity(0.12))
-                                .clipShape(Circle())
-                        }
-
-                        Text("房主")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.orange.opacity(0.28))
-                            .clipShape(Capsule())
-                    }
-                }
-            }
-
-            HStack(spacing: 8) {
-                headerChip(title: campaign.provider.isEmpty ? "Provider 未設定" : campaign.provider, color: .pink)
-                headerChip(title: campaign.model.isEmpty ? "Model 未設定" : campaign.model, color: .orange)
-                headerChip(title: phaseLabel(campaign.phase), color: phaseColor(campaign.phase))
-            }
-        }
-        .padding(16)
-        .background(Color.black.opacity(0.22))
-    }
-
-    private var playerStatusCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                sectionTitle("房內玩家")
-                Spacer()
-                Text("\(campaign.readyPlayerCount)/\(campaign.players.count) 已確認")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.7))
-            }
-
-            ForEach(sortedPlayers) { player in
-                let confirmedAction = campaign.confirmedActions.first(where: { $0.playerId == player.id })
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(player.name)
-                            .font(.headline)
-                            .foregroundStyle(.white)
-
-                        if player.id == campaign.hostId {
-                            Text("Host")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                                .background(Color.orange.opacity(0.28))
-                                .clipShape(Capsule())
-                        }
-
-                        Spacer()
-
-                        Text(confirmedAction == nil ? "等待確認" : "已確認")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(confirmedAction == nil ? .orange : .green)
-                    }
-
-                    Text(player.statSummary)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.65))
-
-                    if let confirmedAction {
-                        Text(confirmedAction.text)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.88))
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.07))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-                }
-                .padding(12)
-                .background(Color.white.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-        }
-        .cardStyle()
-    }
-
-    private var actionStatusCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                sectionTitle("房間進度")
-                Spacer()
-
-                if campaign.phase == .lobby && campaign.isHost {
-                    actionButton(title: "開始遊戲", style: .primary, isDisabled: isSubmitting || campaign.players.isEmpty) {
-                        startGame()
-                    }
-                }
-
-                if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
-                    actionButton(title: isSubmitting ? "結算中..." : "房主繼續", style: .primary, isDisabled: isSubmitting) {
-                        continueRound()
-                    }
-                }
-            }
-
-            Text(statusDescription)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.75))
-        }
-        .cardStyle()
-    }
-
-    private var messageList: some View {
-        LazyVStack(spacing: 16) {
-            if campaign.typedMessages.isEmpty {
-                Text("房主開始遊戲後，AI 的開場白會出現在這裡。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(16)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            } else {
-                ForEach(campaign.typedMessages) { message in
-                    messageBubble(message)
-                }
-            }
-            
-            Color.clear
-                .frame(height: 1)
-                .id("BOTTOM_MARKER")
-                .onAppear {
-                    isAtBottom = true
-                }
-                .onDisappear {
-                    isAtBottom = false
-                }
-        }
-    }
-
-    private func messageBubble(_ message: CampaignMessage) -> some View {
-        let isPlayer = message.kind == .player
-
-        return HStack {
-            if isPlayer { Spacer(minLength: 30) }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(messageKindLabel(message.kind))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(isPlayer ? Color.white.opacity(0.8) : Color.orange.opacity(0.9))
-
-                Text(message.text)
-                    .font(.body)
-                    .foregroundStyle(.white)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(12)
-            .frame(maxWidth: 320, alignment: .leading)
-            .background(isPlayer ? Color.pink.opacity(0.45) : Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-            if !isPlayer { Spacer(minLength: 30) }
-        }
-    }
-
-    private var actionComposerCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            switch campaign.phase {
-            case .lobby:
-                Text(campaign.isHost ? "玩家都到齊後，由房主開始遊戲。" : "等待房主開始遊戲。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-            case .starting:
-                Text("房主正在向 AI 取得開場白...")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-            case .collectingActions:
-                if let confirmed = campaign.myConfirmedAction {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("你已確認本回合行動：")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        Text(confirmed.text)
-                            .foregroundStyle(.white)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                        actionButton(title: "取消確認並編輯", style: .secondary, isDisabled: isSubmitting) {
-                            cancelConfirmation(confirmed.text)
-                        }
-                    }
-                } else {
-                    VStack(spacing: 12) {
-                        HStack {
-                            Text("本回合你的行動")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Spacer()
-                        }
-                        
-                        GameTextEditor(
-                            placeholder: "描述你這回合想做的事",
-                            text: $actionDraft
-                        )
-
-                        actionButton(
-                            title: isSubmitting ? "確認中..." : "確認本回合行動",
-                            style: .primary,
-                            isDisabled: isSubmitting || actionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ) {
-                            confirmCurrentAction()
-                        }
-                    }
-                }
-
-            case .resolvingTurn:
-                Text("房主正在把所有已確認行動交給 AI 結算...")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-            case .finished:
-                Text("這場冒險已經結束。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
-        }
-        .cardStyle()
-    }
-
-    private var statusDescription: String {
-        switch campaign.phase {
-        case .lobby:
-            return campaign.isHost ? "房主可在玩家加入後開始遊戲。" : "等待房主開始遊戲。"
-        case .starting:
-            return "房主正在取得開場白。"
-        case .collectingActions:
-            if campaign.areAllPlayersReady {
-                return campaign.isHost ? "所有玩家都已確認，房主可以繼續。" : "所有玩家都已確認，等待房主繼續。"
-            }
-            return "每位玩家先編輯自己的草稿，確認後才會公開。"
-        case .resolvingTurn:
-            return "AI 正在結算本回合。"
-        case .finished:
-            return "本房間已結束。"
         }
     }
 
@@ -772,14 +144,7 @@ struct ContentView: View {
     private func createRoom() {
         guard !isSubmitting else { return }
 
-        let configuration = AIHostConfiguration(
-            provider: providerPreset.provider,
-            apiFormat: apiFormat,
-            baseURL: baseURL,
-            model: model,
-            apiKey: apiKey,
-            systemPrompt: systemPrompt
-        )
+        let configuration = currentAIConfiguration
 
         isSubmitting = true
         Task {
@@ -860,33 +225,15 @@ struct ContentView: View {
         #endif
     }
 
-    private var providerPresetDraftBinding: Binding<AIProviderPreset> {
-        Binding(
-            get: { aiSettingsDraft.providerPreset },
-            set: { preset in
-                aiSettingsDraft.applyPreset(preset)
-            }
-        )
-    }
+    // MARK: - AI Settings
 
     private func presentAISettings() {
         aiSettingsDraft = AISettingsDraft(configuration: currentAIConfiguration, providerPreset: providerPreset)
         isShowingAISettings = true
     }
 
-    private func requestDismissAISettings() {
-        if hasPendingAISettingsChanges {
-            isShowingDiscardAISettingsConfirmation = true
-            return
-        }
-
-        dismissAISettings(forceDiscard: false)
-    }
-
-    private func dismissAISettings(forceDiscard: Bool) {
-        if forceDiscard {
-            aiSettingsDraft = AISettingsDraft(configuration: currentAIConfiguration, providerPreset: providerPreset)
-        }
+    private func dismissAISettings() {
+        aiSettingsDraft = AISettingsDraft(configuration: currentAIConfiguration, providerPreset: providerPreset)
         isShowingAISettings = false
     }
 
@@ -899,7 +246,6 @@ struct ContentView: View {
         systemPrompt = aiSettingsDraft.systemPrompt
         isShowingAISettings = false
 
-        // If in game and is host, update the configuration in CampaignService
         if campaign.campaignId != nil && campaign.isHost {
             Task {
                 await campaign.updateAIConfiguration(currentAIConfiguration)
@@ -933,192 +279,6 @@ struct ContentView: View {
             configuration: canonicalConfiguration,
             providerPreset: inferredPreset
         )
-    }
-
-    // MARK: - UI Helpers
-
-    private func sectionTitle(_ text: String) -> some View {
-        Text(text)
-            .font(.headline)
-            .foregroundStyle(.white)
-    }
-
-    private func headerChip(title: String, color: Color) -> some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(color.opacity(0.24))
-            .clipShape(Capsule())
-    }
-
-    private func actionButton(title: String, style: ActionButtonStyle, isDisabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(style.background)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .disabled(isDisabled)
-        .opacity(isDisabled ? 0.55 : 1)
-    }
-
-    private func phaseLabel(_ phase: CampaignPhase) -> String {
-        switch phase {
-        case .lobby: return "大廳"
-        case .starting: return "開場中"
-        case .collectingActions: return "等待行動"
-        case .resolvingTurn: return "結算中"
-        case .finished: return "已結束"
-        }
-    }
-
-    private func phaseColor(_ phase: CampaignPhase) -> Color {
-        switch phase {
-        case .lobby: return .blue
-        case .starting: return .purple
-        case .collectingActions: return .green
-        case .resolvingTurn: return .orange
-        case .finished: return .gray
-        }
-    }
-
-    private func formatLabel(_ format: AIAPIFormat) -> String {
-        switch format {
-        case .openAICompatible: return "OpenAI"
-        case .ollama: return "Ollama"
-        }
-    }
-
-    private func messageKindLabel(_ kind: CampaignMessageKind) -> String {
-        switch kind {
-        case .opening: return "開場"
-        case .system: return "系統"
-        case .narration: return "GM"
-        case .player: return "玩家"
-        }
-    }
-}
-
-private enum ActionButtonStyle {
-    case primary
-    case secondary
-
-    var background: LinearGradient {
-        switch self {
-        case .primary:
-            return LinearGradient(
-                colors: [.orange, .pink],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        case .secondary:
-            return LinearGradient(
-                colors: [Color.white.opacity(0.15), Color.white.opacity(0.08)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        }
-    }
-}
-
-private struct CardModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.black.opacity(0.18))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                    )
-            )
-    }
-}
-
-private extension View {
-    func cardStyle() -> some View {
-        modifier(CardModifier())
-    }
-}
-
-struct GameTextField: View {
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            if text.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(.gray)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-            }
-
-            TextField("", text: $text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .foregroundStyle(.white)
-                .padding(12)
-        }
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-}
-
-struct GameSecureField: View {
-    let placeholder: String
-    @Binding var text: String
-
-    var body: some View {
-        ZStack(alignment: .leading) {
-            if text.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(.gray)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-            }
-
-            SecureField("", text: $text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .foregroundStyle(.white)
-                .padding(12)
-        }
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-}
-
-struct GameTextEditor: View {
-    let placeholder: String
-    @Binding var text: String
-    var minHeight: CGFloat? = nil
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            if text.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(.gray)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 16)
-            }
-            
-            TextField("", text: $text, axis: .vertical)
-                .textInputAutocapitalization(.sentences)
-                .foregroundStyle(.white)
-                .lineLimit(2...7)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 16)
-                .frame(minHeight: minHeight)
-        }
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
