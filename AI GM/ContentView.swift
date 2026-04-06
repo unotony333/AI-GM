@@ -18,12 +18,14 @@ struct ContentView: View {
     @AppStorage("savedPlayerName") private var playerName = ""
     @State private var roomName = "冒險房間"
     @AppStorage("savedRoomID") private var campaignInput = ""
-    @State private var providerPreset: AIProviderPreset = .openAI
-    @State private var apiFormat: AIAPIFormat = AIProviderPreset.openAI.apiFormat
-    @State private var baseURL = AIProviderPreset.openAI.baseURL
-    @State private var model = AIProviderPreset.openAI.model
-    @State private var apiKey = ""
-    @State private var systemPrompt = "你是一個TRPG GM。"
+    @State private var aiSettings = AISettingsDraft(
+        providerPreset: .openAI,
+        apiFormat: AIProviderPreset.openAI.apiFormat,
+        baseURL: AIProviderPreset.openAI.baseURL,
+        model: AIProviderPreset.openAI.model,
+        apiKey: "",
+        systemPrompt: "你是一個TRPG GM。"
+    )
     @State private var actionDraft = ""
     @State private var isSubmitting = false
     @State private var isShowingAISettings = false
@@ -51,7 +53,7 @@ struct ContentView: View {
     }
 
     private var aiSettingsSummary: AISettingsSummary {
-        AISettingsSummary(provider: providerPreset.provider, model: model, apiFormat: apiFormat)
+        AISettingsSummary(provider: aiSettings.providerPreset.provider, model: aiSettings.model, apiFormat: aiSettings.apiFormat)
     }
 
     private var firebaseBlockingMessage: String? {
@@ -59,18 +61,11 @@ struct ContentView: View {
     }
 
     private var currentAIConfiguration: AIHostConfiguration {
-        AIHostConfiguration(
-            provider: providerPreset.provider,
-            apiFormat: apiFormat,
-            baseURL: baseURL,
-            model: model,
-            apiKey: apiKey,
-            systemPrompt: systemPrompt
-        )
+        aiSettings.configuration
     }
 
     private var hasPendingAISettingsChanges: Bool {
-        aiSettingsDraft.hasChanges(comparedTo: currentAIConfiguration, providerPreset: providerPreset)
+        aiSettingsDraft != aiSettings
     }
 
     // MARK: - Body
@@ -228,22 +223,17 @@ struct ContentView: View {
     // MARK: - AI Settings
 
     private func presentAISettings() {
-        aiSettingsDraft = AISettingsDraft(configuration: currentAIConfiguration, providerPreset: providerPreset)
+        aiSettingsDraft = aiSettings
         isShowingAISettings = true
     }
 
     private func dismissAISettings() {
-        aiSettingsDraft = AISettingsDraft(configuration: currentAIConfiguration, providerPreset: providerPreset)
+        aiSettingsDraft = aiSettings
         isShowingAISettings = false
     }
 
     private func commitAISettings() {
-        providerPreset = aiSettingsDraft.providerPreset
-        apiFormat = aiSettingsDraft.apiFormat
-        baseURL = aiSettingsDraft.baseURL
-        model = aiSettingsDraft.model
-        apiKey = aiSettingsDraft.apiKey
-        systemPrompt = aiSettingsDraft.systemPrompt
+        aiSettings = aiSettingsDraft
         isShowingAISettings = false
 
         if campaign.campaignId != nil && campaign.isHost {
@@ -269,16 +259,8 @@ struct ContentView: View {
         let canonicalConfiguration = configuration.canonicalized()
         let inferredPreset = AIProviderPreset.inferred(from: canonicalConfiguration)
 
-        providerPreset = inferredPreset
-        apiFormat = canonicalConfiguration.apiFormat
-        baseURL = canonicalConfiguration.baseURL
-        model = canonicalConfiguration.model
-        apiKey = canonicalConfiguration.apiKey
-        systemPrompt = canonicalConfiguration.systemPrompt
-        aiSettingsDraft = AISettingsDraft(
-            configuration: canonicalConfiguration,
-            providerPreset: inferredPreset
-        )
+        aiSettings = AISettingsDraft(configuration: canonicalConfiguration, providerPreset: inferredPreset)
+        aiSettingsDraft = aiSettings
     }
 }
 

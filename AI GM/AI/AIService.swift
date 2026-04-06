@@ -7,7 +7,9 @@
 
 import Foundation
 
-class AIService {
+final class AIService {
+    /// 較長的 timeout 以適應本地模型較慢的推理速度
+    private static let requestTimeout: TimeInterval = 300
     struct Message {
         enum Role: String {
             case system
@@ -60,7 +62,7 @@ class AIService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 300 // 增加 Timeout 時間以適應本地模型較慢的推理速度
+        request.timeoutInterval = Self.requestTimeout
 
         let trimmedAPIKey = configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedAPIKey.isEmpty {

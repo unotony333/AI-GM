@@ -282,9 +282,6 @@ struct AISettingsDraft: Equatable {
         systemPrompt = updated.systemPrompt
     }
 
-    func hasChanges(comparedTo configuration: AIHostConfiguration, providerPreset: AIProviderPreset) -> Bool {
-        self.providerPreset != providerPreset || self.configuration != configuration
-    }
 }
 
 extension AIAPIFormat {

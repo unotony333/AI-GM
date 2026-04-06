@@ -31,6 +31,24 @@ enum ActionButtonStyle {
     }
 }
 
+// MARK: - Disabled State Modifier
+
+private struct DisabledStateModifier: ViewModifier {
+    let isDisabled: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .disabled(isDisabled)
+            .opacity(isDisabled ? 0.55 : 1)
+    }
+}
+
+extension View {
+    func disabledState(_ isDisabled: Bool) -> some View {
+        modifier(DisabledStateModifier(isDisabled: isDisabled))
+    }
+}
+
 // MARK: - Card Modifier
 
 private struct CardModifier: ViewModifier {
@@ -82,8 +100,7 @@ func actionButton(title: String, style: ActionButtonStyle, isDisabled: Bool, act
             .background(style.background)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
-    .disabled(isDisabled)
-    .opacity(isDisabled ? 0.55 : 1)
+    .disabledState(isDisabled)
 }
 
 // MARK: - Label Helpers
@@ -122,6 +139,12 @@ func messageKindLabel(_ kind: CampaignMessageKind) -> String {
     case .narration: return "GM"
     case .player: return "玩家"
     }
+}
+
+// MARK: - Colors
+
+extension Color {
+    static let statusBarBackground = Color(red: 0.12, green: 0.1, blue: 0.16)
 }
 
 // MARK: - Background Gradient

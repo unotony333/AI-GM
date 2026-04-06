@@ -117,16 +117,10 @@ struct LobbyView: View {
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .disabled(
+            .disabledState(
                 isSubmitting ||
                 firebaseBlockingMessage != nil ||
                 playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            )
-            .opacity(
-                isSubmitting ||
-                firebaseBlockingMessage != nil ||
-                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? 0.55 : 1
             )
         }
         .cardStyle()
@@ -151,7 +145,7 @@ struct LobbyView: View {
             Button {
                 onJoinRoom()
             } label: {
-                Text(isSubmitting ? "加入中..." : "加入房間")
+                Text(isSubmitting ? "加入房間中..." : "加入房間")
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -159,18 +153,11 @@ struct LobbyView: View {
                     .background(Color.white.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            .disabled(
+            .disabledState(
                 isSubmitting ||
                 firebaseBlockingMessage != nil ||
                 playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                 campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            )
-            .opacity(
-                isSubmitting ||
-                firebaseBlockingMessage != nil ||
-                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? 0.55 : 1
             )
         }
         .cardStyle()

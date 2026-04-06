@@ -25,7 +25,7 @@ final class CampaignService: ObservableObject {
         }
     }
 
-    private let db = Firestore.firestore()
+    let db = Firestore.firestore()
 
     @Published var campaignId: String?
     @Published var campaignName: String = ""
@@ -41,12 +41,9 @@ final class CampaignService: ObservableObject {
     @Published var confirmedActions: [CampaignAction] = []
     @Published var localErrorMessage: String?
 
-    // Temporary compatibility state for the pre-Task-4 view.
-    @Published var currentTurn: String = ""
-
-    private var listeners: [ListenerRegistration] = []
-    private var currentRoundListener: ListenerRegistration?
-    private var currentRoundActionsListener: ListenerRegistration?
+    var listeners: [ListenerRegistration] = []
+    var currentRoundListener: ListenerRegistration?
+    var currentRoundActionsListener: ListenerRegistration?
 
     private enum DefaultStats {
         static let hp = 20
@@ -105,22 +102,6 @@ final class CampaignService: ObservableObject {
             startListening()
         } catch {
             localErrorMessage = "建立房間失敗：\(error.localizedDescription)"
-        }
-    }
-
-    // Temporary compatibility wrapper for the pre-Task-4 lobby form.
-    func createCampaign(name: String, playerName: String) {
-        let compatibilityConfiguration = AIHostConfiguration(
-            provider: "OpenAI Compatible",
-            apiFormat: .openAICompatible,
-            baseURL: "https://api.openai.com/v1",
-            model: "gpt-4o-mini",
-            apiKey: "",
-            systemPrompt: "你是一個TRPG GM。"
-        )
-
-        Task {
-            await createCampaign(name: name, playerName: playerName, configuration: compatibilityConfiguration)
         }
     }
 
@@ -188,114 +169,6 @@ final class CampaignService: ObservableObject {
         } catch {
             localErrorMessage = "更新 AI 設定失敗：\(error.localizedDescription)"
         }
-    }
-
-    // MARK: - Listening
-
-    func startListening() {
-        stopListening()
-
-        listenCampaign()
-        listenMessages()
-        listenPlayers()
-        refreshRoundListeners()
-    }
-
-    func stopListening() {
-        listeners.forEach { $0.remove() }
-        listeners.removeAll()
-        currentRoundListener?.remove()
-        currentRoundListener = nil
-        currentRoundActionsListener?.remove()
-        currentRoundActionsListener = nil
-    }
-
-    private func listenCampaign() {
-        guard let campaignId else { return }
-
-        let listener = db.collection("campaigns")
-            .document(campaignId)
-            .addSnapshotListener { [weak self] snapshot, _ in
-                guard let self else { return }
-                let data = snapshot?.data() ?? [:]
-
-                self.campaignName = data["name"] as? String ?? ""
-                self.hostId = data["hostId"] as? String ?? ""
-                self.phase = CampaignPhase(rawValue: data["phase"] as? String ?? "") ?? .lobby
-                self.provider = data["provider"] as? String ?? ""
-                self.model = data["model"] as? String ?? ""
-                self.currentTurn = self.hostId
-
-                let nextRoundId = data["currentRoundId"] as? String
-                if nextRoundId != self.currentRoundId {
-                    self.currentRoundId = nextRoundId
-                    self.refreshRoundListeners()
-                }
-            }
-
-        listeners.append(listener)
-    }
-
-    private func listenMessages() {
-        guard let campaignId else { return }
-
-        let listener = db.collection("campaigns")
-            .document(campaignId)
-            .collection("messages")
-            .order(by: "timestamp")
-            .addSnapshotListener { [weak self] snapshot, _ in
-                guard let self else { return }
-                self.typedMessages = snapshot?.documents.map { self.decodeMessage(from: $0) } ?? []
-                self.messages = self.typedMessages.map(\.text)
-            }
-
-        listeners.append(listener)
-    }
-
-    private func listenPlayers() {
-        guard let campaignId else { return }
-
-        let listener = db.collection("campaigns")
-            .document(campaignId)
-            .collection("players")
-            .addSnapshotListener { [weak self] snapshot, _ in
-                guard let self else { return }
-                self.players = snapshot?.documents.map { self.decodePlayer(from: $0) } ?? []
-            }
-
-        listeners.append(listener)
-    }
-
-    private func refreshRoundListeners() {
-        currentRoundListener?.remove()
-        currentRoundListener = nil
-        currentRoundActionsListener?.remove()
-        currentRoundActionsListener = nil
-        confirmedActions = []
-        currentRoundNumber = 0
-
-        guard let campaignId, let currentRoundId else { return }
-
-        currentRoundListener = db.collection("campaigns")
-            .document(campaignId)
-            .collection("rounds")
-            .document(currentRoundId)
-            .addSnapshotListener { [weak self] snapshot, _ in
-                guard let self else { return }
-                let data = snapshot?.data() ?? [:]
-                self.currentRoundNumber = data["number"] as? Int ?? 0
-            }
-
-        currentRoundActionsListener = db.collection("campaigns")
-            .document(campaignId)
-            .collection("rounds")
-            .document(currentRoundId)
-            .collection("actions")
-            .whereField("isConfirmed", isEqualTo: true)
-            .addSnapshotListener { [weak self] snapshot, _ in
-                guard let self else { return }
-                self.confirmedActions = snapshot?.documents.map { self.decodeAction(from: $0) } ?? []
-            }
     }
 
     // MARK: - Messaging
@@ -491,42 +364,4 @@ final class CampaignService: ObservableObject {
         )
     }
 
-    // Temporary compatibility no-op for the pre-Task-4 single-turn UI.
-    func advanceTurn() { }
-
-    // MARK: - Decoding
-
-    private func decodePlayer(from document: QueryDocumentSnapshot) -> Player {
-        let data = document.data()
-        return Player(
-            id: document.documentID,
-            name: data["name"] as? String ?? "",
-            strength: data["strength"] as? Int ?? 0,
-            dexterity: data["dexterity"] as? Int ?? 0,
-            intelligence: data["intelligence"] as? Int ?? 0,
-            hp: data["hp"] as? Int ?? 0,
-            maxHP: data["maxHP"] as? Int
-        )
-    }
-
-    private func decodeAction(from document: QueryDocumentSnapshot) -> CampaignAction {
-        let data = document.data()
-        return CampaignAction(
-            id: document.documentID,
-            playerId: data["playerId"] as? String ?? document.documentID,
-            playerName: data["playerName"] as? String ?? "",
-            text: data["text"] as? String ?? "",
-            isConfirmed: data["isConfirmed"] as? Bool ?? false
-        )
-    }
-
-    private func decodeMessage(from document: QueryDocumentSnapshot) -> CampaignMessage {
-        let data = document.data()
-        return CampaignMessage(
-            id: document.documentID,
-            kind: CampaignMessageKind(rawValue: data["kind"] as? String ?? "") ?? .system,
-            text: data["text"] as? String ?? "",
-            roundNumber: data["roundNumber"] as? Int
-        )
-    }
 }

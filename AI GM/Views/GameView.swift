@@ -46,34 +46,16 @@ struct GameView: View {
                         }
                         .scrollDismissesKeyboard(.interactively)
                         .onChange(of: campaign.typedMessages) { _, _ in
-                            if isAtBottom {
-                                withAnimation {
-                                    proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
-                                }
-                            }
+                            scrollToBottomIfNeeded(proxy)
                         }
                         .onChange(of: campaign.phase) { _, _ in
-                            if isAtBottom {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                    withAnimation {
-                                        proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
-                                    }
-                                }
-                            }
+                            scrollToBottomIfNeeded(proxy, delay: 0.15)
                         }
                         .onChange(of: campaign.myConfirmedAction?.text) { _, _ in
-                            if isAtBottom {
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                                    withAnimation {
-                                        proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
-                                    }
-                                }
-                            }
+                            scrollToBottomIfNeeded(proxy, delay: 0.15)
                         }
                         .onAppear {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom)
-                            }
+                            scrollToBottomIfNeeded(proxy, delay: 0.1, force: true)
                         }
                     }
 
@@ -122,7 +104,7 @@ struct GameView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
-                    .background(Color(red: 0.12, green: 0.1, blue: 0.16))
+                    .background(Color.statusBarBackground)
 
                     Divider().background(Color.white.opacity(0.15))
                 }
@@ -267,7 +249,7 @@ struct GameView: View {
                 }
 
                 if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
-                    actionButton(title: isSubmitting ? "結算中..." : "房主繼續", style: .primary, isDisabled: isSubmitting) {
+                    actionButton(title: isSubmitting ? "結算中..." : "繼續", style: .primary, isDisabled: isSubmitting) {
                         onContinueRound()
                     }
                 }
@@ -311,28 +293,7 @@ struct GameView: View {
     }
 
     private func messageBubble(_ message: CampaignMessage) -> some View {
-        let isPlayer = message.kind == .player
-
-        return HStack {
-            if isPlayer { Spacer(minLength: 30) }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(messageKindLabel(message.kind))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(isPlayer ? Color.white.opacity(0.8) : Color.orange.opacity(0.9))
-
-                Text(message.text)
-                    .font(.body)
-                    .foregroundStyle(.white)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(12)
-            .frame(maxWidth: 320, alignment: .leading)
-            .background(isPlayer ? Color.pink.opacity(0.45) : Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-            if !isPlayer { Spacer(minLength: 30) }
-        }
+        MessageBubbleView(message: message)
     }
 
     // MARK: - Action Composer
@@ -411,6 +372,17 @@ struct GameView: View {
     }
 
     // MARK: - Helpers
+
+    private func scrollToBottomIfNeeded(_ proxy: ScrollViewProxy, delay: TimeInterval = 0, force: Bool = false) {
+        guard force || isAtBottom else { return }
+        if delay > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                withAnimation { proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom) }
+            }
+        } else {
+            withAnimation { proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom) }
+        }
+    }
 
     private var statusDescription: String {
         switch campaign.phase {
