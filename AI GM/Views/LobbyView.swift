@@ -8,16 +8,9 @@
 import SwiftUI
 
 struct LobbyView: View {
+    @ObservedObject var vm: LobbyViewModel
     @ObservedObject var campaign: CampaignService
-    @Binding var playerName: String
-    @Binding var roomName: String
-    @Binding var campaignInput: String
-    @Binding var isSubmitting: Bool
-    let aiSettingsSummary: AISettingsSummary
-    let firebaseBlockingMessage: String?
-    let onCreateRoom: () -> Void
-    let onJoinRoom: () -> Void
-    let onOpenAISettings: () -> Void
+    @ObservedObject var aiSettings: AISettingsViewModel
 
     var body: some View {
         ScrollView {
@@ -39,15 +32,15 @@ struct LobbyView: View {
 
                     Spacer()
 
-                    GameTextField(placeholder: "你的暱稱", text: $playerName)
+                    GameTextField(placeholder: "你的暱稱", text: $vm.playerName)
                 }
 
-                if campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    hostCard
+                if vm.hasSavedRoomID {
                     joinCard
+                    hostCard
                 } else {
-                    joinCard
                     hostCard
+                    joinCard
                 }
             }
             .padding(.horizontal, 20)
@@ -58,12 +51,22 @@ struct LobbyView: View {
     private var hostCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             sectionTitle("建立房間")
-            GameTextField(placeholder: "房間名稱", text: $roomName)
+            GameTextField(placeholder: "房間名稱", text: $vm.roomName)
 
-            if let firebaseBlockingMessage {
-                Text(firebaseBlockingMessage)
-                    .font(.caption)
-                    .foregroundStyle(.orange.opacity(0.9))
+            if let firebaseBlockingMessage = vm.firebaseBlockingMessage {
+                HStack(spacing: 8) {
+                    Text(firebaseBlockingMessage)
+                        .font(.caption)
+                        .foregroundStyle(.orange.opacity(0.9))
+
+                    Spacer()
+
+                    Button("重試") {
+                        vm.retryFirebaseConnection()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                }
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -72,17 +75,17 @@ struct LobbyView: View {
                     .foregroundStyle(.white.opacity(0.7))
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(aiSettingsSummary.title)
+                    Text(aiSettings.summary.title)
                         .font(.headline)
                         .foregroundStyle(.white)
 
-                    Text(aiSettingsSummary.subtitle)
+                    Text(aiSettings.summary.subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.72))
 
                     HStack(spacing: 8) {
-                        ForEach(aiSettingsSummary.badges, id: \.self) { badge in
-                            headerChip(title: badge, color: badge == aiSettingsSummary.title ? .pink : .blue)
+                        ForEach(aiSettings.summary.badges, id: \.self) { badge in
+                            headerChip(title: badge, color: badge == aiSettings.summary.title ? .pink : .blue)
                         }
                     }
                 }
@@ -95,15 +98,15 @@ struct LobbyView: View {
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.62))
 
-                actionButton(title: "設定 AI", style: .secondary, isDisabled: isSubmitting) {
-                    onOpenAISettings()
+                actionButton(title: "設定 AI", style: .secondary, isDisabled: vm.isSubmitting) {
+                    aiSettings.present()
                 }
             }
 
             Button {
-                onCreateRoom()
+                Task { await vm.createRoom(campaign: campaign, configuration: aiSettings.configuration) }
             } label: {
-                Text(isSubmitting ? "建立中..." : "由房主建立房間")
+                Text(vm.isSubmitting ? "建立中..." : "由房主建立房間")
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -118,9 +121,9 @@ struct LobbyView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .disabledState(
-                isSubmitting ||
-                firebaseBlockingMessage != nil ||
-                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                vm.isSubmitting ||
+                vm.firebaseBlockingMessage != nil ||
+                vm.playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             )
         }
         .cardStyle()
@@ -134,18 +137,28 @@ struct LobbyView: View {
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.7))
 
-            if let firebaseBlockingMessage {
-                Text(firebaseBlockingMessage)
-                    .font(.caption)
-                    .foregroundStyle(.orange.opacity(0.9))
+            if let firebaseBlockingMessage = vm.firebaseBlockingMessage {
+                HStack(spacing: 8) {
+                    Text(firebaseBlockingMessage)
+                        .font(.caption)
+                        .foregroundStyle(.orange.opacity(0.9))
+
+                    Spacer()
+
+                    Button("重試") {
+                        vm.retryFirebaseConnection()
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                }
             }
 
-            GameTextField(placeholder: "房間 ID", text: $campaignInput)
+            GameTextField(placeholder: "房間 ID", text: $vm.campaignInput)
 
             Button {
-                onJoinRoom()
+                Task { await vm.joinRoom(campaign: campaign) }
             } label: {
-                Text(isSubmitting ? "加入房間中..." : "加入房間")
+                Text(vm.isSubmitting ? "加入房間中..." : "加入房間")
                     .font(.headline)
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
@@ -154,10 +167,10 @@ struct LobbyView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             .disabledState(
-                isSubmitting ||
-                firebaseBlockingMessage != nil ||
-                playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-                campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                vm.isSubmitting ||
+                vm.firebaseBlockingMessage != nil ||
+                vm.playerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                vm.campaignInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             )
         }
         .cardStyle()

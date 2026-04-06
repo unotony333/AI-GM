@@ -12,16 +12,14 @@ import UIKit
 
 struct GameView: View {
     @ObservedObject var campaign: CampaignService
-    @Binding var actionDraft: String
-    @Binding var isSubmitting: Bool
-    @Binding var isShowingRoomStatus: Bool
-    @Binding var isAtBottom: Bool
-    let onStartGame: () -> Void
-    let onContinueRound: () -> Void
-    let onConfirmAction: () -> Void
-    let onCancelConfirmation: (String) -> Void
-    let onCopyRoomID: () -> Void
-    let onOpenAISettings: () -> Void
+    @ObservedObject var aiSettings: AISettingsViewModel
+    @StateObject private var vm: GameViewModel
+
+    init(campaign: CampaignService, aiSettings: AISettingsViewModel) {
+        self._campaign = ObservedObject(wrappedValue: campaign)
+        self._aiSettings = ObservedObject(wrappedValue: aiSettings)
+        self._vm = StateObject(wrappedValue: GameViewModel(campaign: campaign))
+    }
 
     private var sortedPlayers: [Player] {
         campaign.players.sorted { lhs, rhs in
@@ -69,7 +67,7 @@ struct GameView: View {
 
                 // 懸浮在上面的狀態列表 (DisclosureGroup)
                 VStack(spacing: 0) {
-                    DisclosureGroup(isExpanded: $isShowingRoomStatus) {
+                    DisclosureGroup(isExpanded: $vm.isShowingRoomStatus) {
                         VStack(spacing: 16) {
                             playerStatusCard
                             actionStatusCard
@@ -108,7 +106,7 @@ struct GameView: View {
 
                     Divider().background(Color.white.opacity(0.15))
                 }
-                .shadow(color: isShowingRoomStatus ? .black.opacity(0.5) : .clear, radius: 8, y: 4)
+                .shadow(color: vm.isShowingRoomStatus ? .black.opacity(0.5) : .clear, radius: 8, y: 4)
             }
         }
     }
@@ -129,7 +127,7 @@ struct GameView: View {
                             .foregroundStyle(.white.opacity(0.7))
 
                         Button {
-                            onCopyRoomID()
+                            vm.copyRoomID()
                         } label: {
                             Image(systemName: "doc.on.doc")
                                 .font(.caption)
@@ -143,7 +141,7 @@ struct GameView: View {
                 if campaign.isHost {
                     HStack(spacing: 8) {
                         Button {
-                            onOpenAISettings()
+                            aiSettings.present()
                         } label: {
                             Image(systemName: "slider.horizontal.3")
                                 .font(.subheadline)
@@ -243,14 +241,14 @@ struct GameView: View {
                 Spacer()
 
                 if campaign.phase == .lobby && campaign.isHost {
-                    actionButton(title: "開始遊戲", style: .primary, isDisabled: isSubmitting || campaign.players.isEmpty) {
-                        onStartGame()
+                    actionButton(title: "開始遊戲", style: .primary, isDisabled: vm.isSubmitting || campaign.players.isEmpty) {
+                        Task { await vm.startGame() }
                     }
                 }
 
                 if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
-                    actionButton(title: isSubmitting ? "結算中..." : "繼續", style: .primary, isDisabled: isSubmitting) {
-                        onContinueRound()
+                    actionButton(title: vm.isSubmitting ? "結算中..." : "繼續", style: .primary, isDisabled: vm.isSubmitting) {
+                        Task { await vm.continueRound() }
                     }
                 }
             }
@@ -276,7 +274,7 @@ struct GameView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else {
                 ForEach(campaign.typedMessages) { message in
-                    messageBubble(message)
+                    MessageBubbleView(message: message)
                 }
             }
 
@@ -284,16 +282,12 @@ struct GameView: View {
                 .frame(height: 1)
                 .id("BOTTOM_MARKER")
                 .onAppear {
-                    isAtBottom = true
+                    vm.isAtBottom = true
                 }
                 .onDisappear {
-                    isAtBottom = false
+                    vm.isAtBottom = false
                 }
         }
-    }
-
-    private func messageBubble(_ message: CampaignMessage) -> some View {
-        MessageBubbleView(message: message)
     }
 
     // MARK: - Action Composer
@@ -327,8 +321,8 @@ struct GameView: View {
                             .background(Color.white.opacity(0.08))
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-                        actionButton(title: "取消確認並編輯", style: .secondary, isDisabled: isSubmitting) {
-                            onCancelConfirmation(confirmed.text)
+                        actionButton(title: "取消確認並編輯", style: .secondary, isDisabled: vm.isSubmitting) {
+                            Task { await vm.cancelConfirmation(previousText: confirmed.text) }
                         }
                     }
                 } else {
@@ -342,15 +336,15 @@ struct GameView: View {
 
                         GameTextEditor(
                             placeholder: "描述你這回合想做的事",
-                            text: $actionDraft
+                            text: $vm.actionDraft
                         )
 
                         actionButton(
-                            title: isSubmitting ? "確認中..." : "確認本回合行動",
+                            title: vm.isSubmitting ? "確認中..." : "確認本回合行動",
                             style: .primary,
-                            isDisabled: isSubmitting || actionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            isDisabled: vm.isSubmitting || vm.actionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ) {
-                            onConfirmAction()
+                            Task { await vm.confirmAction() }
                         }
                     }
                 }
@@ -374,7 +368,7 @@ struct GameView: View {
     // MARK: - Helpers
 
     private func scrollToBottomIfNeeded(_ proxy: ScrollViewProxy, delay: TimeInterval = 0, force: Bool = false) {
-        guard force || isAtBottom else { return }
+        guard force || vm.isAtBottom else { return }
         if delay > 0 {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 withAnimation { proxy.scrollTo("BOTTOM_MARKER", anchor: .bottom) }

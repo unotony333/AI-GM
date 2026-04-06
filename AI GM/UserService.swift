@@ -18,6 +18,7 @@ final class UserService: ObservableObject {
     @Published private(set) var authErrorMessage: String?
 
     private var authStateListener: AuthStateDidChangeListenerHandle?
+    private var hasCompletedInitialAuth = false
 
     var sessionStatus: FirebaseSessionStatus {
         FirebaseSessionGate.status(authUserID: userId, isAuthenticating: isAuthenticating)
@@ -27,8 +28,12 @@ final class UserService: ObservableObject {
         authStateListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
             Task { @MainActor in
                 guard let self else { return }
-                self.userId = user?.uid
-                self.isAuthenticating = false
+
+                // 初次登入完成前，listener 會先用 nil 觸發一次，不要讓它蓋掉 isAuthenticating
+                if user != nil || self.hasCompletedInitialAuth {
+                    self.userId = user?.uid
+                    self.isAuthenticating = false
+                }
 
                 if user != nil {
                     self.authErrorMessage = nil
@@ -51,26 +56,29 @@ final class UserService: ObservableObject {
         if let currentUser = Auth.auth().currentUser {
             userId = currentUser.uid
             isAuthenticating = false
+            hasCompletedInitialAuth = true
             authErrorMessage = nil
             return
         }
 
         isAuthenticating = true
+        authErrorMessage = nil
 
         do {
             let result = try await signInAnonymously()
             userId = result.user.uid
             isAuthenticating = false
+            hasCompletedInitialAuth = true
             authErrorMessage = nil
         } catch {
             userId = nil
             isAuthenticating = false
-            
-            // 將錯誤轉為 NSError 並印出詳細的 userInfo 以便除錯
+            hasCompletedInitialAuth = true
+
             let nsError = error as NSError
             print("❌ Firebase 匿名登入詳細錯誤：\(nsError)")
             print("❌ UserInfo：\(nsError.userInfo)")
-            
+
             authErrorMessage = "Firebase 匿名登入失敗：\(error.localizedDescription)"
         }
     }
