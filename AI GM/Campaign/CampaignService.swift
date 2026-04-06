@@ -36,7 +36,6 @@ final class CampaignService: ObservableObject {
     @Published var currentRoundId: String?
     @Published var currentRoundNumber: Int = 0
     @Published var typedMessages: [CampaignMessage] = []
-    @Published var messages: [String] = []
     @Published var players: [Player] = []
     @Published var confirmedActions: [CampaignAction] = []
     @Published var localErrorMessage: String?

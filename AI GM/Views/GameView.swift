@@ -21,14 +21,6 @@ struct GameView: View {
         self._vm = StateObject(wrappedValue: GameViewModel(campaign: campaign))
     }
 
-    private var sortedPlayers: [Player] {
-        campaign.players.sorted { lhs, rhs in
-            if lhs.id == campaign.hostId { return true }
-            if rhs.id == campaign.hostId { return false }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-        }
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             headerBar
@@ -184,7 +176,7 @@ struct GameView: View {
                     .foregroundStyle(.white.opacity(0.7))
             }
 
-            ForEach(sortedPlayers) { player in
+            ForEach(vm.sortedPlayers) { player in
                 let confirmedAction = campaign.confirmedActions.first(where: { $0.playerId == player.id })
 
                 VStack(alignment: .leading, spacing: 6) {

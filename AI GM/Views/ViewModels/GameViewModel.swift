@@ -21,6 +21,7 @@ final class GameViewModel: ObservableObject {
     @Published var isSubmitting = false
     @Published var isShowingRoomStatus = false
     @Published var isAtBottom = true
+    @Published private(set) var sortedPlayers: [Player] = []
 
     private var cancellables = Set<AnyCancellable>()
 
@@ -32,6 +33,18 @@ final class GameViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.actionDraft = ""
+            }
+            .store(in: &cancellables)
+
+        // 玩家列表或房主變更時重新排序，避免 View 每次 render 都重算
+        Publishers.CombineLatest(campaign.$players, campaign.$hostId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] players, hostId in
+                self?.sortedPlayers = players.sorted { lhs, rhs in
+                    if lhs.id == hostId { return true }
+                    if rhs.id == hostId { return false }
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
             }
             .store(in: &cancellables)
     }

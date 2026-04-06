@@ -72,7 +72,6 @@ extension CampaignService {
                     return
                 }
                 self.typedMessages = snapshot?.documents.map { self.decodeMessage(from: $0) } ?? []
-                self.messages = self.typedMessages.map(\.text)
             }
 
         listeners.append(listener)
