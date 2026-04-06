@@ -18,7 +18,9 @@
 | ⚡ 即時同步 | 所有玩家狀態、行動確認、AI 敘事透過 Firebase Firestore 即時推播 |
 | 🎲 角色屬性 | 每位玩家擁有 HP、力量（STR）、敏捷（DEX）、智力（INT）等基礎屬性 |
 | 🔑 匿名登入 | 使用者透過 Firebase 匿名認證，無需額外帳號 |
+| 🔒 安全儲存 | API Key 透過 iOS Keychain 加密保存，不經網路傳輸 |
 | 💾 設定記憶 | AI 連線設定自動儲存於本機，下次開啟自動複原 |
+| 🔄 網路重試 | AI 請求失敗時自動重試（最多 3 次），指數退避策略 |
 
 ---
 
@@ -69,10 +71,11 @@ AI GM (iOS)
 │   ├── CampaignService.swift          # 房間狀態、Firestore CRUD、行動流程
 │   ├── CampaignService+Listeners.swift# Firestore 即時監聽（房間 / 訊息 / 玩家 / 回合）
 │   ├── UserService.swift              # Firebase 匿名認證、session 管理、重試機制
-│   └── FirebaseSessionGate.swift      # Firebase 連線狀態判斷閘門
+│   ├── FirebaseSessionGate.swift      # Firebase 連線狀態判斷閘門
+│   └── KeychainService.swift          # iOS Keychain 加密存取 API Key
 │
 ├── AI
-│   ├── AIService.swift                # HTTP 呼叫 AI API（OpenAI-compatible / Ollama）
+│   ├── AIService.swift                # HTTP 呼叫 AI API（含自動重試機制）
 │   └── AIHostConfiguration.swift      # AI 設定模型、Provider Preset、Draft、本機儲存
 │
 ├── Models
@@ -100,7 +103,8 @@ AI GM (iOS)
                         ▼
 ┌──────────────────────────────────────────────────────────┐
 │                    Services                               │
-│   CampaignService · UserService · GameEngine · AIService │
+│   CampaignService · UserService · KeychainService        │
+│   GameEngine · AIService                                 │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -174,18 +178,31 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /campaigns/{campaignId} {
-      allow read, write: if request.auth != null;
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null
+                    && request.auth.uid == resource.data.hostId;
 
       match /players/{playerId} {
-        allow read, write: if request.auth != null;
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && playerId == request.auth.uid;
+        allow update: if request.auth != null
+                      && playerId == request.auth.uid;
       }
       match /messages/{messageId} {
-        allow read, write: if request.auth != null;
+        allow read: if request.auth != null;
+        allow create: if request.auth != null
+                      && request.auth.uid == get(/databases/$(database)/documents/campaigns/$(campaignId)).data.hostId;
       }
       match /rounds/{roundId} {
-        allow read, write: if request.auth != null;
+        allow read: if request.auth != null;
+        allow create, update: if request.auth != null
+                              && request.auth.uid == get(/databases/$(database)/documents/campaigns/$(campaignId)).data.hostId;
         match /actions/{actionId} {
-          allow read, write: if request.auth != null;
+          allow read: if request.auth != null;
+          allow create, update: if request.auth != null
+                                && actionId == request.auth.uid;
         }
       }
     }
@@ -235,6 +252,7 @@ AI GM/
 │   ├── ContentView.swift              # 路由器：大廳 ↔ 遊戲畫面
 │   ├── FirebaseSessionGate.swift      # Session 狀態閘門
 │   ├── UserService.swift              # 認證管理
+│   ├── KeychainService.swift          # Keychain 加密存取
 │   ├── Player.swift                   # 玩家模型
 │   ├── GoogleService-Info.plist       # Firebase 設定（不提交）
 │   ├── AI/
@@ -266,7 +284,7 @@ AI GM/
 ## 注意事項
 
 - `GoogleService-Info.plist` 已加入 `.gitignore`，請確保每位開發者自行配置
-- API Key 儲存於本機 `UserDefaults`，**不會**上傳至 Firebase
+- API Key 透過 iOS Keychain 加密儲存於本機，**不會**上傳至 Firebase
 - 使用 Ollama 或 LM Studio 等本機模型時，需確保裝置與模型主機在同一網路環境
 - 本專案使用 Firebase 匿名認證，User ID 不具名，清除 App 資料後 ID 會重置
 
