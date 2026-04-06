@@ -32,13 +32,6 @@ final class AIService {
         self.configuration = configuration
     }
 
-    func sendMessage(prompt: String) async throws -> AIResponse {
-        try await sendMessage(messages: [
-            Message(role: .system, content: "只輸出JSON"),
-            Message(role: .user, content: prompt)
-        ])
-    }
-
     func sendMessage(messages: [Message]) async throws -> AIResponse {
         let content = try await sendRawJSON(messages: messages)
         guard let normalizedJSON = normalizeJSONObject(in: content),
@@ -46,13 +39,6 @@ final class AIService {
             throw AIServiceError.invalidResponse
         }
         return try JSONDecoder().decode(AIResponse.self, from: data)
-    }
-
-    func sendRawJSON(prompt: String) async throws -> String {
-        try await sendRawJSON(messages: [
-            Message(role: .system, content: "只輸出JSON"),
-            Message(role: .user, content: prompt)
-        ])
     }
 
     func sendRawJSON(messages: [Message]) async throws -> String {

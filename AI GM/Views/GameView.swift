@@ -6,9 +6,6 @@
 //
 
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 struct GameView: View {
     @ObservedObject var campaign: CampaignService
