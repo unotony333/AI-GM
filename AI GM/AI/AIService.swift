@@ -24,6 +24,7 @@ final class AIService {
         case invalidResponse
         case invalidURL
         case httpError(statusCode: Int, message: String?)
+        case parseError(rawContent: String)
     }
 
     private let configuration: AIHostConfiguration
@@ -34,14 +35,45 @@ final class AIService {
 
     func sendMessage(messages: [Message]) async throws -> AIResponse {
         let content = try await sendRawJSON(messages: messages)
-        guard let normalizedJSON = normalizeJSONObject(in: content),
-              let data = normalizedJSON.data(using: .utf8) else {
-            throw AIServiceError.invalidResponse
+        let trimmedContent = content.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedContent.isEmpty else {
+            throw AIServiceError.parseError(rawContent: content)
         }
-        return try JSONDecoder().decode(AIResponse.self, from: data)
+
+        // Try structured JSON parsing first
+        if let normalizedJSON = normalizeJSONObject(in: trimmedContent),
+           let data = normalizedJSON.data(using: .utf8),
+           let response = try? JSONDecoder().decode(AIResponse.self, from: data) {
+            return response
+        }
+
+        // Fallback: treat entire content as narration
+        return AIResponse(narration: trimmedContent)
     }
 
     func sendRawJSON(messages: [Message]) async throws -> String {
+        let maxAttempts = 3
+        let retryDelays: [UInt64] = [2_000_000_000, 4_000_000_000] // 2s, 4s in nanoseconds
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                return try await executeRequest(messages: messages)
+            } catch {
+                lastError = error
+                if attempt < maxAttempts && isRetryable(error) {
+                    try await Task.sleep(nanoseconds: retryDelays[attempt - 1])
+                    continue
+                }
+                throw error
+            }
+        }
+
+        throw lastError!
+    }
+
+    private func executeRequest(messages: [Message]) async throws -> String {
         guard let url = requestURL() else {
             throw AIServiceError.invalidURL
         }
@@ -72,6 +104,17 @@ final class AIService {
         }
 
         return content
+    }
+
+    private func isRetryable(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return [.timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost]
+                .contains(urlError.code)
+        }
+        if case AIServiceError.httpError(let statusCode, _) = error {
+            return statusCode >= 500
+        }
+        return false
     }
 
     private func requestURL() -> URL? {

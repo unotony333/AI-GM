@@ -157,6 +157,36 @@ struct AIHostConfiguration: Codable, Equatable {
     var apiKey: String
     var systemPrompt: String
 
+    enum CodingKeys: String, CodingKey {
+        case provider, apiFormat, baseURL, model, systemPrompt
+    }
+
+    init(
+        provider: String,
+        apiFormat: AIAPIFormat,
+        baseURL: String,
+        model: String,
+        apiKey: String,
+        systemPrompt: String
+    ) {
+        self.provider = provider
+        self.apiFormat = apiFormat
+        self.baseURL = baseURL
+        self.model = model
+        self.apiKey = apiKey
+        self.systemPrompt = systemPrompt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        provider = try container.decode(String.self, forKey: .provider)
+        apiFormat = try container.decode(AIAPIFormat.self, forKey: .apiFormat)
+        baseURL = try container.decode(String.self, forKey: .baseURL)
+        model = try container.decode(String.self, forKey: .model)
+        systemPrompt = try container.decode(String.self, forKey: .systemPrompt)
+        apiKey = ""
+    }
+
     enum ValidationError: Error, Equatable {
         case emptyProvider
         case emptyModel
@@ -298,44 +328,87 @@ extension AIAPIFormat {
 enum AIHostConfigurationStore {
     private static let defaults = UserDefaults.standard
     private static let lastUsedKey = "hostAIConfig.lastUsed"
+    private static let apiKeyPrefix = "aiApiKey."
 
-    private static func key(campaignId: String) -> String {
+    private static func configKey(campaignId: String) -> String {
         "hostAIConfig.\(campaignId)"
     }
 
+    private static func apiKeyKey(campaignId: String) -> String {
+        "\(apiKeyPrefix)\(campaignId)"
+    }
+
+    private static let lastUsedApiKeyKey = "\(apiKeyPrefix)lastUsed"
+
     static func save(_ configuration: AIHostConfiguration, campaignId: String) throws {
-        try save(configuration, forKey: key(campaignId: campaignId))
+        try save(configuration, configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId))
     }
 
     static func load(campaignId: String) throws -> AIHostConfiguration? {
-        try load(forKey: key(campaignId: campaignId))
+        try load(configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId))
     }
 
     static func saveLastUsed(_ configuration: AIHostConfiguration) throws {
-        try save(configuration, forKey: lastUsedKey)
+        try save(configuration, configKey: lastUsedKey, apiKeyKey: lastUsedApiKeyKey)
     }
 
     static func loadLastUsed() throws -> AIHostConfiguration? {
-        try load(forKey: lastUsedKey)
+        try load(configKey: lastUsedKey, apiKeyKey: lastUsedApiKeyKey)
     }
 
     static func clearLastUsed() {
         defaults.removeObject(forKey: lastUsedKey)
+        KeychainService.delete(key: lastUsedApiKeyKey)
     }
 
-    private static func save(_ configuration: AIHostConfiguration, forKey key: String) throws {
+    static func clear(campaignId: String) {
+        defaults.removeObject(forKey: configKey(campaignId: campaignId))
+        KeychainService.delete(key: apiKeyKey(campaignId: campaignId))
+    }
+
+    private static func save(_ configuration: AIHostConfiguration, configKey: String, apiKeyKey: String) throws {
         let canonicalConfiguration = try configuration.validated()
+
         let encoder = JSONEncoder()
         let data = try encoder.encode(canonicalConfiguration)
-        defaults.set(data, forKey: key)
+        defaults.set(data, forKey: configKey)
+
+        let trimmedApiKey = canonicalConfiguration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedApiKey.isEmpty {
+            try KeychainService.save(key: apiKeyKey, value: trimmedApiKey)
+        } else {
+            KeychainService.delete(key: apiKeyKey)
+        }
     }
 
-    private static func load(forKey key: String) throws -> AIHostConfiguration? {
-        guard let data = defaults.data(forKey: key) else {
+    private static func load(configKey: String, apiKeyKey: String) throws -> AIHostConfiguration? {
+        guard let data = defaults.data(forKey: configKey) else {
             return nil
         }
 
-        let decoded = try JSONDecoder().decode(AIHostConfiguration.self, from: data)
+        var decoded = try JSONDecoder().decode(AIHostConfiguration.self, from: data)
+
+        // Migration: if old format still has apiKey embedded in JSON, extract it
+        if decoded.apiKey.isEmpty, let legacyApiKey = extractLegacyApiKey(from: data) {
+            decoded.apiKey = legacyApiKey
+            // Re-save to migrate: config without apiKey + apiKey in Keychain.
+            // `try?` is intentional: if migration re-save fails (e.g. Keychain busy),
+            // we still return the decoded config with apiKey intact. The next load
+            // will attempt migration again — a benign retry with no data loss.
+            try? save(decoded, configKey: configKey, apiKeyKey: apiKeyKey)
+        } else {
+            decoded.apiKey = KeychainService.load(key: apiKeyKey) ?? ""
+        }
+
         return try decoded.validated()
+    }
+
+    private static func extractLegacyApiKey(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let apiKey = json["apiKey"] as? String,
+              !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        return apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
