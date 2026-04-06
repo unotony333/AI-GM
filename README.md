@@ -6,7 +6,7 @@
 
 ## 簡介
 
-**AI GM** 是一款以 Swift / SwiftUI 建構的 iOS 多人 TRPG（桌上角色扮演遊戲）應用程式。  
+**AI GM** 是一款以 Swift / SwiftUI 建構的 iOS 多人 TRPG（桌上角色扮演遊戲）應用程式。
 房主設定好 AI 供應商與角色系統提示後，便可建立房間、邀請玩家加入，由 AI 擔任 GM 生成開場白與每回合敘事，玩家依序輸入行動並確認，房主收齊後交給 AI 結算，即時劇情同步給所有人。
 
 ### 核心特色
@@ -48,23 +48,60 @@
 
 ## 技術架構
 
+本專案採用 **MVVM（Model–View–ViewModel）** 架構，搭配 Service 層處理 Firebase 與 AI API 通訊。
+
 ```
 AI GM (iOS)
-├── UI 層（SwiftUI）
-│   └── ContentView.swift          # 大廳 / 遊戲主畫面
-├── 服務層
-│   ├── CampaignService.swift      # 房間狀態、Firestore 監聽、行動流程
-│   ├── UserService.swift          # Firebase 匿名認證與 session 管理
-│   └── FirebaseSessionGate.swift  # Firebase session 狀態判斷
-├── AI 層
-│   ├── AIService.swift            # HTTP 呼叫 AI API（OpenAI-compatible / Ollama）
-│   ├── AIHostConfiguration.swift  # AI 設定模型、Provider Preset、本機儲存
-│   └── AIDecision.swift           # AI 判斷結果模型
-└── 規則引擎
-    ├── GameEngine.swift           # Prompt 組裝、AI 呼叫、擲骰
-    ├── ActionParser.swift         # 行動文字解析
-    ├── ActionRule.swift / Dice.swift
-    └── action_rules.json          # 行動規則定義
+├── Views（SwiftUI）
+│   ├── ContentView.swift              # 路由器：大廳 ↔ 遊戲畫面切換、Sheet 呈現
+│   ├── LobbyView.swift                # 大廳畫面：建立 / 加入房間
+│   ├── GameView.swift                 # 遊戲主畫面：訊息列表、行動輸入、玩家狀態
+│   ├── AISettingsSheet.swift          # AI 供應商設定 Sheet
+│   ├── MessageBubbleView.swift        # 訊息氣泡元件
+│   └── SharedComponents.swift         # 共用 UI 元件（輸入框、按鈕、卡片樣式）
+│
+├── ViewModels
+│   ├── LobbyViewModel.swift           # 大廳邏輯：表單狀態、建房 / 入房、Firebase 連線狀態
+│   ├── GameViewModel.swift            # 遊戲邏輯：行動草稿、提交 / 取消、開始遊戲 / 繼續回合
+│   └── AISettingsViewModel.swift      # AI 設定邏輯：讀取 / 編輯 / 儲存 / 還原設定
+│
+├── Services
+│   ├── CampaignService.swift          # 房間狀態、Firestore CRUD、行動流程
+│   ├── CampaignService+Listeners.swift# Firestore 即時監聽（房間 / 訊息 / 玩家 / 回合）
+│   ├── UserService.swift              # Firebase 匿名認證、session 管理、重試機制
+│   └── FirebaseSessionGate.swift      # Firebase 連線狀態判斷閘門
+│
+├── AI
+│   ├── AIService.swift                # HTTP 呼叫 AI API（OpenAI-compatible / Ollama）
+│   └── AIHostConfiguration.swift      # AI 設定模型、Provider Preset、Draft、本機儲存
+│
+├── Models
+│   ├── Player.swift                   # 玩家 ID、名稱、HP、STR / DEX / INT
+│   └── CampaignModels.swift           # 房間、回合、行動、訊息等資料模型
+│
+└── RuleEngine
+    └── GameEngine.swift               # Prompt 組裝與 AI 呼叫
+```
+
+### 架構分層
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                    Views（SwiftUI）                       │
+│   LobbyView · GameView · AISettingsSheet · ...           │
+└───────────────────────┬──────────────────────────────────┘
+                        │ @ObservedObject / @StateObject
+                        ▼
+┌──────────────────────────────────────────────────────────┐
+│                    ViewModels                             │
+│   LobbyViewModel · GameViewModel · AISettingsViewModel   │
+└───────────────────────┬──────────────────────────────────┘
+                        │ 呼叫 Service 方法
+                        ▼
+┌──────────────────────────────────────────────────────────┐
+│                    Services                               │
+│   CampaignService · UserService · GameEngine · AIService │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### 資料模型
@@ -176,7 +213,7 @@ open "AI GM.xcodeproj"
 4. 點擊「**由房主建立房間**」
 5. 把房間 ID（畫面右上角可複製）分享給玩家
 6. 玩家到齊後點擊「**開始遊戲**」，AI 將生成開場白
-7. 每回合所有玩家確認後，點擊「**房主繼續**」讓 AI 結算
+7. 每回合所有玩家確認後，點擊「**繼續**」讓 AI 結算
 
 ### 玩家
 
@@ -194,26 +231,34 @@ open "AI GM.xcodeproj"
 AI GM/
 ├── AI GM.xcodeproj/
 ├── AI GM/
-│   ├── AI_GMApp.swift              # App 進入點，初始化 Firebase
-│   ├── ContentView.swift           # 大廳與遊戲主畫面
-│   ├── FirebaseSessionGate.swift   # Session 狀態閘門
-│   ├── UserService.swift           # 認證管理
-│   ├── CampaignService.swift       # 房間 / 回合 / 行動服務
-│   ├── CampaignModels.swift        # 資料模型定義
-│   ├── Player.swift                # 玩家模型
-│   ├── GoogleService-Info.plist    # Firebase 設定（不提交）
+│   ├── AI_GMApp.swift                 # App 進入點，初始化 Firebase
+│   ├── ContentView.swift              # 路由器：大廳 ↔ 遊戲畫面
+│   ├── FirebaseSessionGate.swift      # Session 狀態閘門
+│   ├── UserService.swift              # 認證管理
+│   ├── Player.swift                   # 玩家模型
+│   ├── GoogleService-Info.plist       # Firebase 設定（不提交）
 │   ├── AI/
-│   │   ├── AIService.swift
-│   │   ├── AIHostConfiguration.swift
-│   │   └── AIDecision.swift
-│   └── RuleEngine/
-│       ├── GameEngine.swift
-│       ├── ActionParser.swift
-│       ├── ActionRule.swift
-│       ├── Dice.swift
-│       ├── GameAction.swift
-│       └── action_rules.json
+│   │   ├── AIService.swift            # AI API 呼叫
+│   │   └── AIHostConfiguration.swift  # AI 設定模型與本機儲存
+│   ├── Campaign/
+│   │   ├── CampaignModels.swift       # 房間 / 回合 / 行動 / 訊息模型
+│   │   ├── CampaignService.swift      # 房間 CRUD、行動流程
+│   │   └── CampaignService+Listeners.swift  # Firestore 即時監聽
+│   ├── RuleEngine/
+│   │   └── GameEngine.swift           # Prompt 組裝與 AI 呼叫
+│   └── Views/
+│       ├── GameView.swift             # 遊戲主畫面
+│       ├── LobbyView.swift            # 大廳畫面
+│       ├── AISettingsSheet.swift       # AI 設定 Sheet
+│       ├── MessageBubbleView.swift    # 訊息氣泡元件
+│       ├── SharedComponents.swift     # 共用 UI 元件
+│       └── ViewModels/
+│           ├── LobbyViewModel.swift   # 大廳邏輯
+│           ├── GameViewModel.swift    # 遊戲邏輯
+│           └── AISettingsViewModel.swift # AI 設定邏輯
 └── Tests/
+    ├── FirebaseSessionGateManualTests.swift
+    └── AIHostConfigurationStoreManualTests.swift
 ```
 
 ---
