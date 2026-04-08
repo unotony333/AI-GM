@@ -6,6 +6,13 @@
 //
 
 import Foundation
+import os
+
+protocol HTTPClient: Sendable {
+    func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+extension URLSession: HTTPClient {}
 
 final class AIService {
     /// 較長的 timeout 以適應本地模型較慢的推理速度
@@ -28,9 +35,11 @@ final class AIService {
     }
 
     private let configuration: AIHostConfiguration
+    private let httpClient: HTTPClient
 
-    init(configuration: AIHostConfiguration) {
+    init(configuration: AIHostConfiguration, httpClient: HTTPClient = URLSession.shared) {
         self.configuration = configuration
+        self.httpClient = httpClient
     }
 
     func sendMessage(messages: [Message]) async throws -> AIResponse {
@@ -49,27 +58,34 @@ final class AIService {
         }
 
         // Fallback: treat entire content as narration
+        AppLogger.ai.warning("AI response is not valid JSON, falling back to plain text narration")
         return AIResponse(narration: trimmedContent)
     }
 
     func sendRawJSON(messages: [Message]) async throws -> String {
         let maxAttempts = 3
-        let retryDelays: [UInt64] = [2_000_000_000, 4_000_000_000] // 2s, 4s in nanoseconds
+        let retryDelays: [UInt64] = [2_000_000_000, 4_000_000_000]
         var lastError: Error?
 
         for attempt in 1...maxAttempts {
+            try Task.checkCancellation()
             do {
                 return try await executeRequest(messages: messages)
             } catch {
                 lastError = error
                 if attempt < maxAttempts && isRetryable(error) {
+                    AppLogger.ai.warning("AI request attempt \(attempt)/\(maxAttempts) failed: \(error.localizedDescription). Retrying...")
                     try await Task.sleep(nanoseconds: retryDelays[attempt - 1])
                     continue
+                }
+                if !(error is CancellationError) {
+                    AppLogger.ai.error("AI request failed after \(attempt) attempt(s): \(error.localizedDescription)")
                 }
                 throw error
             }
         }
 
+        AppLogger.ai.error("AI request failed after \(maxAttempts) attempts: \(lastError!.localizedDescription)")
         throw lastError!
     }
 
@@ -77,6 +93,8 @@ final class AIService {
         guard let url = requestURL() else {
             throw AIServiceError.invalidURL
         }
+
+        AppLogger.ai.debug("AI request to \(url.absoluteString)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -90,9 +108,10 @@ final class AIService {
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: requestBody(messages: messages))
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await httpClient.data(for: request)
         if let httpResponse = response as? HTTPURLResponse,
            !(200...299).contains(httpResponse.statusCode) {
+            AppLogger.ai.error("AI HTTP error \(httpResponse.statusCode): \(self.extractErrorMessage(from: data) ?? "no message")")
             throw AIServiceError.httpError(
                 statusCode: httpResponse.statusCode,
                 message: extractErrorMessage(from: data)

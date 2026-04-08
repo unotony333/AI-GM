@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
+import os
 
 extension CampaignService {
 
@@ -38,6 +39,7 @@ extension CampaignService {
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
                 if let error {
+                    AppLogger.firebase.error("Campaign listener error: \(error.localizedDescription)")
                     self.localErrorMessage = "房間監聽異常：\(error.localizedDescription)"
                     return
                 }
@@ -68,6 +70,7 @@ extension CampaignService {
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
                 if let error {
+                    AppLogger.firebase.error("Messages listener error: \(error.localizedDescription)")
                     self.localErrorMessage = "訊息監聽異常：\(error.localizedDescription)"
                     return
                 }
@@ -86,6 +89,7 @@ extension CampaignService {
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
                 if let error {
+                    AppLogger.firebase.error("Players listener error: \(error.localizedDescription)")
                     self.localErrorMessage = "玩家監聽異常：\(error.localizedDescription)"
                     return
                 }
@@ -112,6 +116,7 @@ extension CampaignService {
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
                 if let error {
+                    AppLogger.firebase.error("Round listener error: \(error.localizedDescription)")
                     self.localErrorMessage = "回合監聽異常：\(error.localizedDescription)"
                     return
                 }
@@ -128,6 +133,7 @@ extension CampaignService {
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self else { return }
                 if let error {
+                    AppLogger.firebase.error("Actions listener error: \(error.localizedDescription)")
                     self.localErrorMessage = "行動監聽異常：\(error.localizedDescription)"
                     return
                 }

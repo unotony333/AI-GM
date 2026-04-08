@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseFirestore
+import os
 internal import Combine
 
 @MainActor
@@ -98,6 +99,7 @@ final class CampaignService: ObservableObject {
             )
 
             campaignId = doc.documentID
+            AppLogger.firebase.info("Campaign created: \(doc.documentID)")
             startListening()
         } catch {
             localErrorMessage = "建立房間失敗：\(error.localizedDescription)"
@@ -262,6 +264,7 @@ final class CampaignService: ObservableObject {
                 "phase": CampaignPhase.starting.rawValue,
                 "updatedAt": Timestamp()
             ])
+            AppLogger.firebase.info("Game starting for campaign \(campaignId ?? "unknown")")
 
             let narration = try await engine.generateOpeningNarration(
                 players: players,
@@ -275,6 +278,13 @@ final class CampaignService: ObservableObject {
                 "updatedAt": Timestamp()
             ])
         } catch {
+            if error is CancellationError {
+                try? await updateCampaign([
+                    "phase": CampaignPhase.lobby.rawValue,
+                    "updatedAt": Timestamp()
+                ])
+                return
+            }
             try? await updateCampaign([
                 "phase": CampaignPhase.lobby.rawValue,
                 "updatedAt": Timestamp()
@@ -296,6 +306,7 @@ final class CampaignService: ObservableObject {
                 "phase": CampaignPhase.resolvingTurn.rawValue,
                 "updatedAt": Timestamp()
             ])
+            AppLogger.firebase.info("Resolving round \(self.currentRoundNumber) for campaign \(campaignId ?? "unknown")")
 
             let narration = try await engine.resolveRound(
                 messages: typedMessages,
@@ -315,6 +326,13 @@ final class CampaignService: ObservableObject {
                 "updatedAt": Timestamp()
             ])
         } catch {
+            if error is CancellationError {
+                try? await updateCampaign([
+                    "phase": CampaignPhase.collectingActions.rawValue,
+                    "updatedAt": Timestamp()
+                ])
+                return
+            }
             try? await updateCampaign([
                 "phase": CampaignPhase.collectingActions.rawValue,
                 "updatedAt": Timestamp()

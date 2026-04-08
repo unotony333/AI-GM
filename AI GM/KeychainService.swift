@@ -5,6 +5,7 @@
 
 import Foundation
 import Security
+import os
 
 enum KeychainService {
     private static let service = "com.aigm.apikeys"
@@ -31,6 +32,7 @@ enum KeychainService {
 
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else {
+            AppLogger.keychain.error("Keychain save failed for key '\(key)': OSStatus \(status)")
             throw KeychainError.saveFailed(status)
         }
     }
@@ -46,6 +48,10 @@ enum KeychainService {
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status != errSecSuccess && status != errSecItemNotFound {
+            AppLogger.keychain.error("Keychain load failed for key '\(key)': OSStatus \(status)")
+        }
 
         guard status == errSecSuccess,
               let data = result as? Data,
@@ -63,6 +69,9 @@ enum KeychainService {
             kSecAttrAccount as String: key
         ]
 
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            AppLogger.keychain.warning("Keychain delete unexpected status for key '\(key)': OSStatus \(status)")
+        }
     }
 }

@@ -14,12 +14,18 @@
 
 /* Begin PBXFileReference section */
 		EA8916F92F725E8800AB6831 /* AI GM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AI GM.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000012F80000100AB6831 /* AI GMTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "AI GMTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		EA8916FB2F725E8800AB6831 /* AI GM */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "AI GM";
+			sourceTree = "<group>";
+		};
+		AA0000022F80000100AB6831 /* AI GMTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "AI GMTests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -35,6 +41,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000042F80000100AB6831 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -42,6 +55,7 @@
 			isa = PBXGroup;
 			children = (
 				EA8916FB2F725E8800AB6831 /* AI GM */,
+				AA0000022F80000100AB6831 /* AI GMTests */,
 				EA8917EB2F72926E00AB6831 /* Frameworks */,
 				EA8916FA2F725E8800AB6831 /* Products */,
 			);
@@ -51,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				EA8916F92F725E8800AB6831 /* AI GM.app */,
+				AA0000012F80000100AB6831 /* AI GMTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -63,6 +78,24 @@
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
+
+/* Begin PBXContainerItemProxy section */
+		AA0000072F80000100AB6831 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EA8916F12F725E8800AB6831 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = EA8916F82F725E8800AB6831;
+			remoteInfo = "AI GM";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		AA0000082F80000100AB6831 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = EA8916F82F725E8800AB6831 /* AI GM */;
+			targetProxy = AA0000072F80000100AB6831 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin PBXNativeTarget section */
 		EA8916F82F725E8800AB6831 /* AI GM */ = {
@@ -89,6 +122,27 @@
 			productName = "AI GM";
 			productReference = EA8916F92F725E8800AB6831 /* AI GM.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AA0000062F80000100AB6831 /* AI GMTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA00000B2F80000100AB6831 /* Build configuration list for PBXNativeTarget "AI GMTests" */;
+			buildPhases = (
+				AA0000032F80000100AB6831 /* Sources */,
+				AA0000042F80000100AB6831 /* Frameworks */,
+				AA0000052F80000100AB6831 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA0000082F80000100AB6831 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AA0000022F80000100AB6831 /* AI GMTests */,
+			);
+			name = "AI GMTests";
+			productName = "AI GMTests";
+			productReference = AA0000012F80000100AB6831 /* AI GMTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -123,6 +177,7 @@
 			projectRoot = "";
 			targets = (
 				EA8916F82F725E8800AB6831 /* AI GM */,
+				AA0000062F80000100AB6831 /* AI GMTests */,
 			);
 		};
 /* End PBXProject section */
@@ -135,10 +190,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AA0000052F80000100AB6831 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		EA8916F52F725E8800AB6831 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AA0000032F80000100AB6831 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -335,6 +404,46 @@
 			};
 			name = Release;
 		};
+		AA0000092F80000100AB6831 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9FSV75692V;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "me.tony.AI-GMTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AI GM.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AI GM";
+			};
+			name = Debug;
+		};
+		AA00000A2F80000100AB6831 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 9FSV75692V;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "me.tony.AI-GMTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/AI GM.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/AI GM";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -352,6 +461,15 @@
 			buildConfigurations = (
 				EA8917052F725E8900AB6831 /* Debug */,
 				EA8917062F725E8900AB6831 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA00000B2F80000100AB6831 /* Build configuration list for PBXNativeTarget "AI GMTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000092F80000100AB6831 /* Debug */,
+				AA00000A2F80000100AB6831 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -7,6 +7,7 @@
 
 import Foundation
 import FirebaseAuth
+import os
 internal import Combine
 
 @MainActor
@@ -76,8 +77,8 @@ final class UserService: ObservableObject {
             hasCompletedInitialAuth = true
 
             let nsError = error as NSError
-            print("❌ Firebase 匿名登入詳細錯誤：\(nsError)")
-            print("❌ UserInfo：\(nsError.userInfo)")
+            AppLogger.auth.error("Firebase anonymous sign-in failed: \(nsError)")
+            AppLogger.auth.error("Firebase sign-in error userInfo: \(nsError.userInfo)")
 
             authErrorMessage = "Firebase 匿名登入失敗：\(error.localizedDescription)"
         }

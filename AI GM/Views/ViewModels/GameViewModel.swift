@@ -24,6 +24,7 @@ final class GameViewModel: ObservableObject {
     @Published private(set) var sortedPlayers: [Player] = []
 
     private var cancellables = Set<AnyCancellable>()
+    private var currentAITask: Task<Void, Never>?
 
     init(campaign: CampaignService) {
         self.campaign = campaign
@@ -49,17 +50,29 @@ final class GameViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    func startGame() async {
+    func startGame() {
         guard !isSubmitting else { return }
         isSubmitting = true
-        await campaign.startGame(using: engine)
-        isSubmitting = false
+        currentAITask = Task {
+            await campaign.startGame(using: engine)
+            isSubmitting = false
+            currentAITask = nil
+        }
     }
 
-    func continueRound() async {
+    func continueRound() {
         guard !isSubmitting else { return }
         isSubmitting = true
-        await campaign.continueRound(using: engine)
+        currentAITask = Task {
+            await campaign.continueRound(using: engine)
+            isSubmitting = false
+            currentAITask = nil
+        }
+    }
+
+    func cancelAIRequest() {
+        currentAITask?.cancel()
+        currentAITask = nil
         isSubmitting = false
     }
 

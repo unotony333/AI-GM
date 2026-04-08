@@ -231,13 +231,13 @@ struct GameView: View {
 
                 if campaign.phase == .lobby && campaign.isHost {
                     actionButton(title: "開始遊戲", style: .primary, isDisabled: vm.isSubmitting || campaign.players.isEmpty) {
-                        Task { await vm.startGame() }
+                        vm.startGame()
                     }
                 }
 
                 if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
                     actionButton(title: vm.isSubmitting ? "結算中..." : "繼續", style: .primary, isDisabled: vm.isSubmitting) {
-                        Task { await vm.continueRound() }
+                        vm.continueRound()
                     }
                 }
             }
@@ -291,10 +291,18 @@ struct GameView: View {
                     .frame(maxWidth: .infinity, alignment: .center)
 
             case .starting:
-                Text("房主正在向 AI 取得開場白...")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .center)
+                VStack(spacing: 8) {
+                    Text("房主正在向 AI 取得開場白...")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    if campaign.isHost && vm.isSubmitting {
+                        actionButton(title: "取消", style: .secondary, isDisabled: false) {
+                            vm.cancelAIRequest()
+                        }
+                    }
+                }
 
             case .collectingActions:
                 if let confirmed = campaign.myConfirmedAction {
@@ -339,10 +347,18 @@ struct GameView: View {
                 }
 
             case .resolvingTurn:
-                Text("房主正在把所有已確認行動交給 AI 結算...")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .center)
+                VStack(spacing: 8) {
+                    Text("房主正在把所有已確認行動交給 AI 結算...")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .frame(maxWidth: .infinity, alignment: .center)
+
+                    if campaign.isHost && vm.isSubmitting {
+                        actionButton(title: "取消", style: .secondary, isDisabled: false) {
+                            vm.cancelAIRequest()
+                        }
+                    }
+                }
 
             case .finished:
                 Text("這場冒險已經結束。")
