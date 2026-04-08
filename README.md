@@ -52,40 +52,6 @@
 
 本專案採用 **MVVM（Model–View–ViewModel）** 架構，搭配 Service 層處理 Firebase 與 AI API 通訊。
 
-```
-AI GM (iOS)
-├── Views（SwiftUI）
-│   ├── ContentView.swift              # 路由器：大廳 ↔ 遊戲畫面切換、Sheet 呈現
-│   ├── LobbyView.swift                # 大廳畫面：建立 / 加入房間
-│   ├── GameView.swift                 # 遊戲主畫面：訊息列表、行動輸入、玩家狀態
-│   ├── AISettingsSheet.swift          # AI 供應商設定 Sheet
-│   ├── MessageBubbleView.swift        # 訊息氣泡元件
-│   └── SharedComponents.swift         # 共用 UI 元件（輸入框、按鈕、卡片樣式）
-│
-├── ViewModels
-│   ├── LobbyViewModel.swift           # 大廳邏輯：表單狀態、建房 / 入房、Firebase 連線狀態
-│   ├── GameViewModel.swift            # 遊戲邏輯：行動草稿、提交 / 取消、開始遊戲 / 繼續回合
-│   └── AISettingsViewModel.swift      # AI 設定邏輯：讀取 / 編輯 / 儲存 / 還原設定
-│
-├── Services
-│   ├── CampaignService.swift          # 房間狀態、Firestore CRUD、行動流程
-│   ├── CampaignService+Listeners.swift# Firestore 即時監聽（房間 / 訊息 / 玩家 / 回合）
-│   ├── UserService.swift              # Firebase 匿名認證、session 管理、重試機制
-│   ├── FirebaseSessionGate.swift      # Firebase 連線狀態判斷閘門
-│   └── KeychainService.swift          # iOS Keychain 加密存取 API Key
-│
-├── AI
-│   ├── AIService.swift                # HTTP 呼叫 AI API（含自動重試機制）
-│   └── AIHostConfiguration.swift      # AI 設定模型、Provider Preset、Draft、本機儲存
-│
-├── Models
-│   ├── Player.swift                   # 玩家 ID、名稱、HP、STR / DEX / INT
-│   └── CampaignModels.swift           # 房間、回合、行動、訊息等資料模型
-│
-└── RuleEngine
-    └── GameEngine.swift               # Prompt 組裝與 AI 呼叫
-```
-
 ### 架構分層
 
 ```
@@ -148,8 +114,8 @@ campaigns/{campaignId}
 
 ## 環境需求
 
-- **iOS 16+**（建議 iOS 17+）
-- **Xcode 15+**
+- **iOS 17+**
+- **Xcode 16+**
 - **Firebase 專案**（需開啟 Firestore 與 Anonymous Authentication）
 - 有效的 AI API Key（使用雲端供應商時）
 
@@ -250,6 +216,7 @@ AI GM/
 ├── AI GM/
 │   ├── AI_GMApp.swift                 # App 進入點，初始化 Firebase
 │   ├── ContentView.swift              # 路由器：大廳 ↔ 遊戲畫面
+│   ├── AppLogger.swift                # 統一 os.Logger 分類（ai / firebase / keychain / auth）
 │   ├── FirebaseSessionGate.swift      # Session 狀態閘門
 │   ├── UserService.swift              # 認證管理
 │   ├── KeychainService.swift          # Keychain 加密存取
@@ -274,10 +241,34 @@ AI GM/
 │           ├── LobbyViewModel.swift   # 大廳邏輯
 │           ├── GameViewModel.swift    # 遊戲邏輯
 │           └── AISettingsViewModel.swift # AI 設定邏輯
-└── Tests/
-    ├── FirebaseSessionGateManualTests.swift
-    └── AIHostConfigurationStoreManualTests.swift
+└── AI GMTests/
+    ├── AIServiceTests.swift               # AI 請求 / 回應 / 重試邏輯測試
+    ├── GameEngineTests.swift              # Prompt 組裝測試
+    ├── FirebaseSessionGateTests.swift     # 認證閘門測試
+    ├── AIHostConfigurationStoreTests.swift # AI 設定儲存測試
+    └── Mocks/
+        └── MockHTTPClient.swift           # 測試用 HTTP 假實作
 ```
+
+---
+
+## 測試
+
+```bash
+xcodebuild test \
+  -project "AI GM.xcodeproj" \
+  -scheme "AI GM" \
+  -destination "platform=iOS Simulator,name=iPhone 16"
+```
+
+| 測試檔案 | 涵蓋範圍 |
+|----------|----------|
+| `AIServiceTests` | AI API 請求 / JSON 解析 / 重試邏輯 |
+| `GameEngineTests` | Prompt 組裝（開場白 / 回合結算） |
+| `FirebaseSessionGateTests` | 認證閘門狀態判斷 |
+| `AIHostConfigurationStoreTests` | AI 設定的儲存與讀取 |
+
+測試使用 `MockHTTPClient` 注入假 HTTP 回應，不需要實際的 AI API Key 或 Firebase 連線。
 
 ---
 
