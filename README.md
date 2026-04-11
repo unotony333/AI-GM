@@ -233,14 +233,13 @@ AI GM/
 │   │   └── GameEngine.swift           # Prompt 組裝與 AI 呼叫
 │   └── Views/
 │       ├── GameView.swift             # 遊戲主畫面
+│       ├── GameViewModel.swift        # 遊戲邏輯
 │       ├── LobbyView.swift            # 大廳畫面
-│       ├── AISettingsSheet.swift       # AI 設定 Sheet
+│       ├── LobbyViewModel.swift       # 大廳邏輯
+│       ├── AISettingsSheet.swift      # AI 設定 Sheet
+│       ├── AISettingsViewModel.swift  # AI 設定邏輯
 │       ├── MessageBubbleView.swift    # 訊息氣泡元件
-│       ├── SharedComponents.swift     # 共用 UI 元件
-│       └── ViewModels/
-│           ├── LobbyViewModel.swift   # 大廳邏輯
-│           ├── GameViewModel.swift    # 遊戲邏輯
-│           └── AISettingsViewModel.swift # AI 設定邏輯
+│       └── SharedComponents.swift     # 共用 UI 元件
 └── AI GMTests/
     ├── AIServiceTests.swift               # AI 請求 / 回應 / 重試邏輯測試
     ├── GameEngineTests.swift              # Prompt 組裝測試
