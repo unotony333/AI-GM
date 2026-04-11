@@ -264,7 +264,7 @@ final class CampaignService: ObservableObject {
                 "phase": CampaignPhase.starting.rawValue,
                 "updatedAt": Timestamp()
             ])
-            AppLogger.firebase.info("Game starting for campaign \(campaignId ?? "unknown")")
+            AppLogger.firebase.info("Game starting for campaign \(campaignId)")
 
             let narration = try await engine.generateOpeningNarration(
                 players: players,
@@ -306,7 +306,7 @@ final class CampaignService: ObservableObject {
                 "phase": CampaignPhase.resolvingTurn.rawValue,
                 "updatedAt": Timestamp()
             ])
-            AppLogger.firebase.info("Resolving round \(self.currentRoundNumber) for campaign \(campaignId ?? "unknown")")
+            AppLogger.firebase.info("Resolving round \(self.currentRoundNumber) for campaign \(campaignId)")
 
             let narration = try await engine.resolveRound(
                 messages: typedMessages,
