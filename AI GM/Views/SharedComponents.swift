@@ -12,40 +12,43 @@ import SwiftUI
 enum ActionButtonStyle {
     case primary
     case secondary
+}
 
-    var background: LinearGradient {
-        switch self {
+struct GameButtonStyle: ButtonStyle {
+    let kind: ActionButtonStyle
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+
+        configuration.label
+            .font(.headline)
+            .foregroundStyle(foreground)
+            .frame(maxWidth: .infinity, minHeight: 50)
+            .padding(.horizontal, 16)
+            .background(background, in: shape)
+            .overlay {
+                if kind == .secondary {
+                    shape.strokeBorder(Palette.hairline, lineWidth: 1)
+                }
+            }
+            .opacity(configuration.isPressed ? 0.82 : 1)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+
+    private var foreground: Color {
+        guard isEnabled else { return Palette.sageDim }
+        return kind == .primary ? Palette.candleInk : Palette.vellum
+    }
+
+    private var background: Color {
+        switch kind {
         case .primary:
-            return LinearGradient(
-                colors: [.orange, .pink],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
+            return isEnabled ? Palette.candle : Palette.feltRaised
         case .secondary:
-            return LinearGradient(
-                colors: [Color.white.opacity(0.15), Color.white.opacity(0.08)],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
+            return isEnabled ? Palette.feltRaised : Palette.feltRaised.opacity(0.5)
         }
-    }
-}
-
-// MARK: - Disabled State Modifier
-
-private struct DisabledStateModifier: ViewModifier {
-    let isDisabled: Bool
-
-    func body(content: Content) -> some View {
-        content
-            .disabled(isDisabled)
-            .opacity(isDisabled ? 0.55 : 1)
-    }
-}
-
-extension View {
-    func disabledState(_ isDisabled: Bool) -> some View {
-        modifier(DisabledStateModifier(isDisabled: isDisabled))
     }
 }
 
@@ -54,13 +57,13 @@ extension View {
 private struct CardModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .padding(16)
+            .padding(18)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.black.opacity(0.18))
+                    .fill(Palette.feltRaised.opacity(0.92))
                     .overlay(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            .strokeBorder(Palette.hairline, lineWidth: 1)
                     )
             )
     }
@@ -76,31 +79,54 @@ extension View {
 
 func sectionTitle(_ text: String) -> some View {
     Text(text)
-        .font(.headline)
-        .foregroundStyle(.white)
+        .serifFont(.heading)
+        .foregroundStyle(Palette.vellum)
+}
+
+func fieldLabel(_ text: String) -> some View {
+    Text(text)
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(Palette.sage)
 }
 
 func headerChip(title: String, color: Color) -> some View {
     Text(title)
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.white)
+        .foregroundStyle(color)
+        .lineLimit(1)
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(color.opacity(0.24))
-        .clipShape(Capsule())
+        .padding(.vertical, 5)
+        .background(color.opacity(0.12), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.28), lineWidth: 1))
 }
 
 func actionButton(title: String, style: ActionButtonStyle, isDisabled: Bool, action: @escaping () -> Void) -> some View {
-    Button(action: action) {
-        Text(title)
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(style.background)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    Button(title, action: action)
+        .buttonStyle(GameButtonStyle(kind: style))
+        .disabled(isDisabled)
+}
+
+/// Firebase 尚未連線時的提示列
+func connectionNotice(_ message: String, onRetry: @escaping () -> Void) -> some View {
+    HStack(alignment: .firstTextBaseline, spacing: 10) {
+        Image(systemName: "wifi.exclamationmark")
+            .foregroundStyle(Palette.candle)
+
+        Text(message)
+            .font(.footnote)
+            .foregroundStyle(Palette.vellum.opacity(0.9))
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        Button("重試", action: onRetry)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Palette.candle)
     }
-    .disabledState(isDisabled)
+    .padding(14)
+    .background(Palette.candle.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    .overlay(
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(Palette.candle.opacity(0.3), lineWidth: 1)
+    )
 }
 
 // MARK: - Label Helpers
@@ -117,11 +143,11 @@ func phaseLabel(_ phase: CampaignPhase) -> String {
 
 func phaseColor(_ phase: CampaignPhase) -> Color {
     switch phase {
-    case .lobby: return .blue
-    case .starting: return .purple
-    case .collectingActions: return .green
-    case .resolvingTurn: return .orange
-    case .finished: return .gray
+    case .lobby: return Palette.sage
+    case .starting: return Palette.candle
+    case .collectingActions: return Palette.moss
+    case .resolvingTurn: return Palette.candle
+    case .finished: return Palette.sageDim
     }
 }
 
@@ -141,47 +167,31 @@ func messageKindLabel(_ kind: CampaignMessageKind) -> String {
     }
 }
 
-// MARK: - Colors
-
-extension Color {
-    static let statusBarBackground = Color(red: 0.12, green: 0.1, blue: 0.16)
-}
-
-// MARK: - Background Gradient
-
-let appBackgroundGradient = LinearGradient(
-    colors: [
-        Color(red: 0.09, green: 0.08, blue: 0.14),
-        Color(red: 0.14, green: 0.09, blue: 0.18),
-        Color(red: 0.08, green: 0.1, blue: 0.16)
-    ],
-    startPoint: .topLeading,
-    endPoint: .bottomTrailing
-)
-
 // MARK: - Reusable Input Components
+
+private struct InputFieldModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .tint(Palette.candle)
+            .background(Palette.feltSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Palette.hairline, lineWidth: 1)
+            )
+    }
+}
 
 struct GameTextField: View {
     let placeholder: String
     @Binding var text: String
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            if text.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(.gray)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-            }
-
-            TextField("", text: $text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .foregroundStyle(.white)
-                .padding(12)
-        }
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        TextField("", text: $text, prompt: Text(placeholder).foregroundStyle(Palette.sageDim))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .foregroundStyle(Palette.vellum)
+            .padding(14)
+            .modifier(InputFieldModifier())
     }
 }
 
@@ -190,22 +200,12 @@ struct GameSecureField: View {
     @Binding var text: String
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            if text.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(.gray)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
-            }
-
-            SecureField("", text: $text)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .foregroundStyle(.white)
-                .padding(12)
-        }
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        SecureField("", text: $text, prompt: Text(placeholder).foregroundStyle(Palette.sageDim))
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .foregroundStyle(Palette.vellum)
+            .padding(14)
+            .modifier(InputFieldModifier())
     }
 }
 
@@ -215,23 +215,12 @@ struct GameTextEditor: View {
     var minHeight: CGFloat? = nil
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            if text.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(.gray)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 16)
-            }
-
-            TextField("", text: $text, axis: .vertical)
-                .textInputAutocapitalization(.sentences)
-                .foregroundStyle(.white)
-                .lineLimit(2...7)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 16)
-                .frame(minHeight: minHeight)
-        }
-        .background(Color.white.opacity(0.1))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        TextField("", text: $text, prompt: Text(placeholder).foregroundStyle(Palette.sageDim), axis: .vertical)
+            .textInputAutocapitalization(.sentences)
+            .foregroundStyle(Palette.vellum)
+            .lineLimit(2...7)
+            .padding(14)
+            .frame(minHeight: minHeight, alignment: .topLeading)
+            .modifier(InputFieldModifier())
     }
 }

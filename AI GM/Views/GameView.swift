@@ -12,6 +12,12 @@ struct GameView: View {
     @ObservedObject var aiSettings: AISettingsViewModel
     @StateObject private var vm: GameViewModel
 
+    @State private var didCopyRoomID = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// 冒險紀錄與輸入區的最大寬度，避免在 iPad 上一行太長
+    private let readingWidth: CGFloat = 640
+
     init(campaign: CampaignService, aiSettings: AISettingsViewModel) {
         self._campaign = ObservedObject(wrappedValue: campaign)
         self._aiSettings = ObservedObject(wrappedValue: aiSettings)
@@ -21,15 +27,17 @@ struct GameView: View {
     var body: some View {
         VStack(spacing: 0) {
             headerBar
+            partyBar
 
             ZStack(alignment: .top) {
                 VStack(spacing: 0) {
-                    Color.clear.frame(height: 52)
-
                     ScrollViewReader { proxy in
                         ScrollView {
                             messageList
-                                .padding(16)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 20)
+                                .frame(maxWidth: readingWidth)
+                                .frame(maxWidth: .infinity)
                         }
                         .scrollDismissesKeyboard(.interactively)
                         .onChange(of: campaign.typedMessages) { _, _ in
@@ -46,57 +54,21 @@ struct GameView: View {
                         }
                     }
 
-                    VStack(spacing: 0) {
-                        Divider().background(Color.white.opacity(0.15))
-                        actionComposerCard
-                            .padding(16)
-                            .background(Color.black.opacity(0.2))
-                    }
+                    composerBar
                 }
 
-                // 懸浮在上面的狀態列表 (DisclosureGroup)
-                VStack(spacing: 0) {
-                    DisclosureGroup(isExpanded: $vm.isShowingRoomStatus) {
-                        VStack(spacing: 16) {
-                            playerStatusCard
-                            actionStatusCard
-                        }
-                        .padding(.top, 12)
-                        .padding(.bottom, 4)
-                    } label: {
-                        HStack {
-                            Image(systemName: "info.circle.fill")
-                            Text("房間與玩家狀態")
-                                .font(.headline)
-                            Spacer()
-                            if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
-                                Text("可繼續")
-                                    .font(.caption.weight(.bold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.orange)
-                                    .clipShape(Capsule())
-                                    .foregroundStyle(.white)
-                            } else if campaign.phase == .lobby && campaign.isHost {
-                                Text("可開始")
-                                    .font(.caption.weight(.bold))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                    .background(Color.blue)
-                                    .clipShape(Capsule())
-                                    .foregroundStyle(.white)
-                            }
-                        }
-                        .foregroundStyle(.white.opacity(0.85))
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
-                    .background(Color.statusBarBackground)
+                // 展開的隊伍面板蓋在冒險紀錄上方
+                if vm.isShowingRoomStatus {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea(edges: .bottom)
+                        .onTapGesture { toggleRoomStatus() }
+                        .transition(.opacity)
 
-                    Divider().background(Color.white.opacity(0.15))
+                    roomStatusPanel
+                        .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                 }
-                .shadow(color: vm.isShowingRoomStatus ? .black.opacity(0.5) : .clear, radius: 8, y: 4)
             }
+            .clipped()
         }
     }
 
@@ -104,163 +76,251 @@ struct GameView: View {
 
     private var headerBar: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(campaign.campaignName.isEmpty ? "房間" : campaign.campaignName)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
+                        .serifFont(.title)
+                        .foregroundStyle(Palette.vellum)
+                        .lineLimit(1)
 
-                    HStack(spacing: 8) {
-                        Text(campaign.campaignId ?? "未知")
-                            .font(.footnote.monospaced())
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        Button {
-                            vm.copyRoomID()
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.7))
-                        }
-                    }
+                    roomIDButton
                 }
 
-                Spacer()
+                Spacer(minLength: 8)
 
                 if campaign.isHost {
-                    HStack(spacing: 8) {
-                        Button {
-                            aiSettings.present()
-                        } label: {
-                            Image(systemName: "slider.horizontal.3")
-                                .font(.subheadline)
-                                .foregroundStyle(.white)
-                                .padding(8)
-                                .background(Color.white.opacity(0.12))
-                                .clipShape(Circle())
-                        }
+                    Text("房主")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Palette.vellum)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Palette.wax, in: Capsule())
+                        .padding(.top, 10)
 
-                        Text("房主")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.orange.opacity(0.28))
-                            .clipShape(Capsule())
+                    Button {
+                        aiSettings.present()
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Palette.vellum)
+                            .frame(width: 40, height: 40)
+                            .background(Palette.feltRaised, in: Circle())
+                            .overlay(Circle().strokeBorder(Palette.hairline, lineWidth: 1))
                     }
+                    .accessibilityLabel("AI 設定")
                 }
             }
 
-            HStack(spacing: 8) {
-                headerChip(title: campaign.provider.isEmpty ? "Provider 未設定" : campaign.provider, color: .pink)
-                headerChip(title: campaign.model.isEmpty ? "Model 未設定" : campaign.model, color: .orange)
-                headerChip(title: phaseLabel(campaign.phase), color: phaseColor(campaign.phase))
+            HStack(spacing: 10) {
+                phasePill
+
+                HStack(spacing: 6) {
+                    Text(campaign.provider.isEmpty ? "Provider 未設定" : campaign.provider)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Palette.vellum.opacity(0.85))
+                    Text(campaign.model.isEmpty ? "Model 未設定" : campaign.model)
+                        .foregroundStyle(Palette.sage)
+                        .truncationMode(.middle)
+                }
+                .font(.caption)
+                .lineLimit(1)
             }
         }
-        .padding(16)
-        .background(Color.black.opacity(0.22))
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 14)
     }
 
-    // MARK: - Player Status
-
-    private var playerStatusCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                sectionTitle("房內玩家")
-                Spacer()
-                Text("\(campaign.readyPlayerCount)/\(campaign.players.count) 已確認")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+    private var roomIDButton: some View {
+        Button {
+            vm.copyRoomID()
+            didCopyRoomID = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                didCopyRoomID = false
             }
+        } label: {
+            HStack(spacing: 6) {
+                Text(campaign.campaignId ?? "未知")
+                    .font(.footnote.monospaced())
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Image(systemName: didCopyRoomID ? "checkmark" : "doc.on.doc")
+                    .font(.caption.weight(.semibold))
+                if didCopyRoomID {
+                    Text("已複製")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .foregroundStyle(didCopyRoomID ? Palette.moss : Palette.sage)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(didCopyRoomID ? "已複製房間 ID" : "複製房間 ID")
+    }
 
-            ForEach(vm.sortedPlayers) { player in
-                let confirmedAction = campaign.confirmedActions.first(where: { $0.playerId == player.id })
+    private var phasePill: some View {
+        let color = phaseColor(campaign.phase)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(player.name)
-                            .font(.headline)
-                            .foregroundStyle(.white)
+        return HStack(spacing: 6) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(phaseLabel(campaign.phase))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(color.opacity(0.12), in: Capsule())
+        .overlay(Capsule().strokeBorder(color.opacity(0.28), lineWidth: 1))
+        .fixedSize()
+    }
 
-                        if player.id == campaign.hostId {
-                            Text("Host")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
-                                .background(Color.orange.opacity(0.28))
-                                .clipShape(Capsule())
-                        }
+    // MARK: - Party Bar
 
-                        Spacer()
+    private var hostCue: String? {
+        guard campaign.isHost else { return nil }
+        if campaign.phase == .lobby {
+            return "可開始"
+        }
+        if campaign.phase == .collectingActions && campaign.areAllPlayersReady {
+            return "可繼續"
+        }
+        return nil
+    }
 
-                        Text(confirmedAction == nil ? "等待確認" : "已確認")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(confirmedAction == nil ? .orange : .green)
-                    }
+    private var partySummary: String {
+        let count = campaign.players.count
+        switch campaign.phase {
+        case .collectingActions:
+            let round = campaign.currentRoundNumber > 0 ? "第 \(campaign.currentRoundNumber) 回合，" : ""
+            return "\(round)\(campaign.readyPlayerCount)/\(count) 人已確認"
+        default:
+            return "\(count) 位玩家"
+        }
+    }
 
-                    Text(player.statSummary)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.65))
-
-                    if let confirmedAction {
-                        Text(confirmedAction.text)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.88))
-                            .padding(10)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.07))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    private var partyBar: some View {
+        Button {
+            toggleRoomStatus()
+        } label: {
+            HStack(spacing: 12) {
+                HStack(spacing: -8) {
+                    ForEach(vm.sortedPlayers.prefix(5)) { player in
+                        PlayerToken(name: player.name, isReady: isReady(player))
                     }
                 }
-                .padding(12)
-                .background(Color.white.opacity(0.06))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("隊伍")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Palette.vellum)
+                    Text(partySummary)
+                        .font(.caption)
+                        .foregroundStyle(Palette.sage)
+                }
+
+                Spacer(minLength: 8)
+
+                if let hostCue {
+                    Text(hostCue)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Palette.candleInk)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Palette.candle, in: Capsule())
+                }
+
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Palette.sage)
+                    .rotationEffect(.degrees(vm.isShowingRoomStatus ? 180 : 0))
             }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
         }
-        .cardStyle()
+        .buttonStyle(.plain)
+        .background(Palette.feltDeep.opacity(0.55))
+        .overlay(alignment: .top) { Palette.hairline.frame(height: 1) }
+        .overlay(alignment: .bottom) { Palette.hairline.frame(height: 1) }
+        .accessibilityLabel("隊伍，\(partySummary)")
+        .accessibilityHint(vm.isShowingRoomStatus ? "收合隊伍資訊" : "展開隊伍資訊")
+    }
+
+    private var roomStatusPanel: some View {
+        let content = VStack(spacing: 12) {
+            ForEach(vm.sortedPlayers) { player in
+                PlayerSheetRow(
+                    player: player,
+                    isHost: player.id == campaign.hostId,
+                    confirmedAction: campaign.confirmedActions.first(where: { $0.playerId == player.id })
+                )
+            }
+
+            actionStatusCard
+        }
+        .padding(16)
+        .frame(maxWidth: readingWidth)
+        .frame(maxWidth: .infinity)
+
+        return ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content }
+        }
+        .background(Palette.felt)
+        .overlay(alignment: .bottom) { Palette.hairline.frame(height: 1) }
+        .shadow(color: .black.opacity(0.45), radius: 14, y: 8)
     }
 
     // MARK: - Action Status
 
     private var actionStatusCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                sectionTitle("房間進度")
-                Spacer()
-
-                if campaign.phase == .lobby && campaign.isHost {
-                    actionButton(title: "開始遊戲", style: .primary, isDisabled: vm.isSubmitting || campaign.players.isEmpty) {
-                        vm.startGame()
-                    }
-                }
-
-                if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
-                    actionButton(title: vm.isSubmitting ? "結算中..." : "繼續", style: .primary, isDisabled: vm.isSubmitting) {
-                        vm.continueRound()
-                    }
-                }
-            }
-
             Text(statusDescription)
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.75))
+                .foregroundStyle(Palette.sage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            hostAdvanceButton
         }
-        .cardStyle()
+        .padding(.horizontal, 4)
+        .padding(.top, 4)
+    }
+
+    /// 房主推進遊戲的按鈕：大廳時開始，全員確認後繼續
+    @ViewBuilder
+    private var hostAdvanceButton: some View {
+        if campaign.phase == .lobby && campaign.isHost {
+            actionButton(title: "開始遊戲", style: .primary, isDisabled: vm.isSubmitting || campaign.players.isEmpty) {
+                vm.isShowingRoomStatus = false
+                vm.startGame()
+            }
+        }
+
+        if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
+            actionButton(title: vm.isSubmitting ? "結算中..." : "繼續", style: .primary, isDisabled: vm.isSubmitting) {
+                vm.isShowingRoomStatus = false
+                vm.continueRound()
+            }
+        }
     }
 
     // MARK: - Messages
 
     private var messageList: some View {
-        LazyVStack(spacing: 16) {
+        LazyVStack(spacing: 28) {
             if campaign.typedMessages.isEmpty {
-                Text("房主開始遊戲後，AI 的開場白會出現在這裡。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(16)
-                    .background(Color.white.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(spacing: 18) {
+                    D20Emblem(glow: 0)
+                        .frame(width: 64)
+                    Text("房主開始遊戲後，AI 的開場白會出現在這裡。")
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.sage)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 48)
             } else {
                 ForEach(campaign.typedMessages) { message in
                     MessageBubbleView(message: message)
@@ -281,96 +341,115 @@ struct GameView: View {
 
     // MARK: - Action Composer
 
-    private var actionComposerCard: some View {
+    private var composerBar: some View {
         VStack(alignment: .leading, spacing: 12) {
-            switch campaign.phase {
-            case .lobby:
-                Text(campaign.isHost ? "玩家都到齊後，由房主開始遊戲。" : "等待房主開始遊戲。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .center)
+            composerContent
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .frame(maxWidth: readingWidth)
+        .frame(maxWidth: .infinity)
+        .background {
+            Palette.feltDeep.opacity(0.88)
+                .ignoresSafeArea(.container, edges: .bottom)
+        }
+        .overlay(alignment: .top) { Palette.hairline.frame(height: 1) }
+    }
 
-            case .starting:
-                VStack(spacing: 8) {
-                    Text("房主正在向 AI 取得開場白...")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .frame(maxWidth: .infinity, alignment: .center)
+    @ViewBuilder
+    private var composerContent: some View {
+        switch campaign.phase {
+        case .lobby:
+            Text(campaign.isHost ? "玩家都到齊後，由房主開始遊戲。" : "等待房主開始遊戲。")
+                .font(.subheadline)
+                .foregroundStyle(Palette.sage)
+                .frame(maxWidth: .infinity, alignment: campaign.isHost ? .leading : .center)
 
-                    if campaign.isHost && vm.isSubmitting {
-                        actionButton(title: "取消", style: .secondary, isDisabled: false) {
-                            vm.cancelAIRequest()
-                        }
-                    }
+            hostAdvanceButton
+
+        case .starting:
+            thinkingRow("房主正在向 AI 取得開場白...")
+
+        case .collectingActions:
+            if let confirmed = campaign.myConfirmedAction {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("你已確認本回合行動", systemImage: "checkmark.circle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.moss)
+
+                    Text("「\(confirmed.text)」")
+                        .serifFont(.quote)
+                        .foregroundStyle(Palette.vellum)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-            case .collectingActions:
-                if let confirmed = campaign.myConfirmedAction {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("你已確認本回合行動：")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(0.7))
-
-                        Text(confirmed.text)
-                            .foregroundStyle(.white)
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.08))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
-                        actionButton(title: "取消確認並編輯", style: .secondary, isDisabled: vm.isSubmitting) {
-                            Task { await vm.cancelConfirmation(previousText: confirmed.text) }
-                        }
+                HStack(spacing: 10) {
+                    actionButton(title: "取消確認並編輯", style: .secondary, isDisabled: vm.isSubmitting) {
+                        Task { await vm.cancelConfirmation(previousText: confirmed.text) }
                     }
-                } else {
-                    VStack(spacing: 12) {
-                        HStack {
-                            Text("本回合你的行動")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.7))
-                            Spacer()
-                        }
 
-                        GameTextEditor(
-                            placeholder: "描述你這回合想做的事",
-                            text: $vm.actionDraft
-                        )
-
-                        actionButton(
-                            title: vm.isSubmitting ? "確認中..." : "確認本回合行動",
-                            style: .primary,
-                            isDisabled: vm.isSubmitting || vm.actionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ) {
-                            Task { await vm.confirmAction() }
-                        }
-                    }
+                    hostAdvanceButton
                 }
+            } else {
+                Text("本回合你的行動")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.sage)
 
-            case .resolvingTurn:
-                VStack(spacing: 8) {
-                    Text("房主正在把所有已確認行動交給 AI 結算...")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                        .frame(maxWidth: .infinity, alignment: .center)
+                GameTextEditor(
+                    placeholder: "描述你這回合想做的事",
+                    text: $vm.actionDraft
+                )
 
-                    if campaign.isHost && vm.isSubmitting {
-                        actionButton(title: "取消", style: .secondary, isDisabled: false) {
-                            vm.cancelAIRequest()
-                        }
-                    }
+                actionButton(
+                    title: vm.isSubmitting ? "確認中..." : "確認本回合行動",
+                    style: .primary,
+                    isDisabled: vm.isSubmitting || vm.actionDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ) {
+                    Task { await vm.confirmAction() }
                 }
+            }
 
-            case .finished:
-                Text("這場冒險已經結束。")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(maxWidth: .infinity, alignment: .center)
+        case .resolvingTurn:
+            thinkingRow("房主正在把所有已確認行動交給 AI 結算...")
+
+        case .finished:
+            Text("這場冒險已經結束。")
+                .font(.subheadline)
+                .foregroundStyle(Palette.sage)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
+    }
+
+    @ViewBuilder
+    private func thinkingRow(_ text: String) -> some View {
+        HStack(spacing: 12) {
+            ThinkingDie()
+                .frame(width: 28)
+            Text(text)
+                .font(.subheadline)
+                .foregroundStyle(Palette.sage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+
+        if campaign.isHost && vm.isSubmitting {
+            actionButton(title: "取消", style: .secondary, isDisabled: false) {
+                vm.cancelAIRequest()
             }
         }
-        .cardStyle()
     }
 
     // MARK: - Helpers
+
+    private func isReady(_ player: Player) -> Bool {
+        campaign.confirmedActions.contains { $0.playerId == player.id }
+    }
+
+    private func toggleRoomStatus() {
+        withAnimation(.snappy(duration: 0.28)) {
+            vm.isShowingRoomStatus.toggle()
+        }
+    }
 
     private func scrollToBottomIfNeeded(_ proxy: ScrollViewProxy, delay: TimeInterval = 0, force: Bool = false) {
         guard force || vm.isAtBottom else { return }

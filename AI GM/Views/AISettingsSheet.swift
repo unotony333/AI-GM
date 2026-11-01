@@ -18,19 +18,11 @@ struct AISettingsSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.08, green: 0.07, blue: 0.12),
-                        Color(red: 0.12, green: 0.09, blue: 0.17)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                FeltBackground()
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 10) {
                             sectionTitle("AI 供應商")
 
                             Picker("AI 供應商", selection: providerPresetBinding) {
@@ -39,34 +31,51 @@ struct AISettingsSheet: View {
                                 }
                             }
                             .pickerStyle(.menu)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 12)
+                            .tint(Palette.vellum)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 8)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color.white.opacity(0.1))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .background(Palette.feltSunken, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .strokeBorder(Palette.hairline, lineWidth: 1)
+                            )
 
                             Text(draft.providerPreset.description)
                                 .font(.caption)
-                                .foregroundStyle(.white.opacity(0.62))
+                                .foregroundStyle(Palette.sage)
                         }
                         .cardStyle()
 
-                        VStack(alignment: .leading, spacing: 12) {
-                            sectionTitle("連線設定")
-
+                        VStack(alignment: .leading, spacing: 14) {
                             HStack(spacing: 8) {
-                                headerChip(title: draft.providerPreset.provider, color: .pink)
-                                headerChip(title: formatLabel(draft.apiFormat), color: .blue)
+                                sectionTitle("連線設定")
+                                Spacer()
+                                headerChip(title: formatLabel(draft.apiFormat), color: Palette.sage)
                             }
 
-                            GameTextField(placeholder: "Base URL，例如 https://api.openai.com/v1", text: $draft.baseURL)
-                            GameTextField(placeholder: "Model，例如 gpt-4o-mini / llama3.1", text: $draft.model)
-                            GameSecureField(placeholder: "API Key", text: $draft.apiKey)
+                            VStack(alignment: .leading, spacing: 8) {
+                                fieldLabel("Base URL")
+                                GameTextField(placeholder: "例如 https://api.openai.com/v1", text: $draft.baseURL)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                fieldLabel("Model")
+                                GameTextField(placeholder: "例如 gpt-4o-mini / llama3.1", text: $draft.model)
+                            }
+
+                            VStack(alignment: .leading, spacing: 8) {
+                                fieldLabel("API Key")
+                                GameSecureField(placeholder: "只存在這台裝置的 Keychain", text: $draft.apiKey)
+                            }
                         }
                         .cardStyle()
 
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 10) {
                             sectionTitle("主持風格")
+                            Text("告訴 GM 要用什麼語氣、世界觀與規則主持。")
+                                .font(.caption)
+                                .foregroundStyle(Palette.sage)
                             GameTextEditor(placeholder: "System Prompt", text: $draft.systemPrompt, minHeight: 180)
                         }
                         .cardStyle()
@@ -74,19 +83,20 @@ struct AISettingsSheet: View {
                     .padding(20)
                     .padding(.bottom, 24)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("關閉") {
                         requestDismiss()
                     }
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(Palette.sage)
                 }
 
                 ToolbarItem(placement: .principal) {
                     Text("AI 設定")
-                        .font(.headline)
-                        .foregroundStyle(.white)
+                        .serifFont(.quote)
+                        .foregroundStyle(Palette.vellum)
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
@@ -96,6 +106,7 @@ struct AISettingsSheet: View {
                     .fontWeight(.semibold)
                 }
             }
+            .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden, for: .navigationBar)
         }
         .presentationDetents([.large])

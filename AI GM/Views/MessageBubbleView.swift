@@ -7,33 +7,110 @@
 
 import SwiftUI
 
+/// 冒險紀錄的一則項目：GM 敘事像書頁一樣排版，玩家與系統訊息退居旁註。
 struct MessageBubbleView: View {
     let message: CampaignMessage
 
-    private var isPlayer: Bool {
-        message.kind == .player
+    var body: some View {
+        switch message.kind {
+        case .opening, .narration:
+            narration
+        case .player:
+            playerNote
+        case .system:
+            systemNote
+        }
     }
 
-    var body: some View {
-        HStack {
-            if isPlayer { Spacer(minLength: 30) }
+    // MARK: - GM Narration
 
-            VStack(alignment: .leading, spacing: 6) {
+    private var chapterTitle: String {
+        if message.kind == .opening {
+            return "序章"
+        }
+        if let roundNumber = message.roundNumber {
+            return "第 \(roundNumber) 回合"
+        }
+        return messageKindLabel(message.kind)
+    }
+
+    private var narration: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            chapterMarker
+
+            Text(message.text)
+                .serifFont(.narration)
+                .foregroundStyle(Palette.vellum)
+                .lineSpacing(6)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        .padding(.top, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var chapterMarker: some View {
+        HStack(spacing: 12) {
+            ornamentRule(leading: true)
+
+            HStack(spacing: 8) {
+                Image(systemName: "diamond.fill")
+                    .font(.system(size: 5))
+                Text(chapterTitle)
+                    .font(.footnote.weight(.semibold))
+                    .tracking(1)
+                Image(systemName: "diamond.fill")
+                    .font(.system(size: 5))
+            }
+            .foregroundStyle(Palette.candle)
+            .fixedSize()
+
+            ornamentRule(leading: false)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func ornamentRule(leading: Bool) -> some View {
+        LinearGradient(
+            colors: [Palette.candle.opacity(0), Palette.candle.opacity(0.45)],
+            startPoint: leading ? .leading : .trailing,
+            endPoint: leading ? .trailing : .leading
+        )
+        .frame(height: 1)
+    }
+
+    // MARK: - Player / System
+
+    private var playerNote: some View {
+        HStack {
+            Spacer(minLength: 48)
+
+            VStack(alignment: .trailing, spacing: 4) {
                 Text(messageKindLabel(message.kind))
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(isPlayer ? Color.white.opacity(0.8) : Color.orange.opacity(0.9))
+                    .foregroundStyle(Palette.sage)
 
                 Text(message.text)
-                    .font(.body)
-                    .foregroundStyle(.white)
+                    .font(.callout)
+                    .foregroundStyle(Palette.vellum)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Palette.feltRaised, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Palette.hairline, lineWidth: 1)
+                    )
             }
-            .padding(12)
-            .frame(maxWidth: 320, alignment: .leading)
-            .background(isPlayer ? Color.pink.opacity(0.45) : Color.white.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-            if !isPlayer { Spacer(minLength: 30) }
         }
+    }
+
+    private var systemNote: some View {
+        Text(message.text)
+            .font(.footnote)
+            .foregroundStyle(Palette.sage)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
     }
 }

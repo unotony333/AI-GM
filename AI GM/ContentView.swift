@@ -22,8 +22,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                appBackgroundGradient
-                    .ignoresSafeArea()
+                FeltBackground()
 
                 if campaign.campaignId == nil {
                     LobbyView(
@@ -51,6 +50,7 @@ struct ContentView: View {
                 }
             }
             .onAppear {
+                SerifFontLoader.shared.loadIfNeeded()
                 aiSettings.restoreLastUsedIfNeeded { error in
                     campaign.localErrorMessage = error
                 }
@@ -64,6 +64,8 @@ struct ContentView: View {
                 )
             }
         }
+        .tint(Palette.candle)
+        .preferredColorScheme(.dark)
     }
 }
 
