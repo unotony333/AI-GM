@@ -76,6 +76,24 @@ final class GameViewModel: ObservableObject {
         isSubmitting = false
     }
 
+    /// 房主 App 在等待 AI 時被關閉，房間會停在 starting / resolvingTurn，讓房主重新送出
+    func retryInterruptedRequest() {
+        switch campaign.phase {
+        case .starting:
+            startGame()
+        case .resolvingTurn:
+            continueRound()
+        default:
+            break
+        }
+    }
+
+    /// 房主離開時一併中止 AI 請求，房間會自動退回上一步
+    func leaveRoom() {
+        cancelAIRequest()
+        campaign.leaveCampaign()
+    }
+
     func confirmAction() async {
         guard !isSubmitting else { return }
         let draft = actionDraft.trimmingCharacters(in: .whitespacesAndNewlines)

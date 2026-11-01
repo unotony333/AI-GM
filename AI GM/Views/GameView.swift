@@ -13,6 +13,8 @@ struct GameView: View {
     @StateObject private var vm: GameViewModel
 
     @State private var didCopyRoomID = false
+    @State private var isConfirmingLeave = false
+    @State private var isConfirmingEarlyContinue = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// 冒險紀錄與輸入區的最大寬度，避免在 iPad 上一行太長
@@ -70,6 +72,19 @@ struct GameView: View {
             }
             .clipped()
         }
+        .confirmationDialog(
+            "還有 \(campaign.playersWithoutAction.count) 位玩家沒確認行動",
+            isPresented: $isConfirmingEarlyContinue,
+            titleVisibility: .visible
+        ) {
+            Button("直接結算") {
+                vm.isShowingRoomStatus = false
+                vm.continueRound()
+            }
+            Button("再等等", role: .cancel) { }
+        } message: {
+            Text("\(campaign.playersWithoutAction.map(\.name).joined(separator: "、")) 這回合會被當作沒有行動。")
+        }
     }
 
     // MARK: - Header
@@ -97,17 +112,21 @@ struct GameView: View {
                         .background(Palette.wax, in: Capsule())
                         .padding(.top, 10)
 
-                    Button {
+                    headerIconButton(systemName: "slider.horizontal.3", label: "AI 設定") {
                         aiSettings.present()
-                    } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Palette.vellum)
-                            .frame(width: 40, height: 40)
-                            .background(Palette.feltRaised, in: Circle())
-                            .overlay(Circle().strokeBorder(Palette.hairline, lineWidth: 1))
                     }
-                    .accessibilityLabel("AI 設定")
+                }
+
+                headerIconButton(systemName: "rectangle.portrait.and.arrow.right", label: "離開房間") {
+                    isConfirmingLeave = true
+                }
+                .confirmationDialog("離開這個房間？", isPresented: $isConfirmingLeave, titleVisibility: .visible) {
+                    Button("離開房間", role: .destructive) {
+                        vm.leaveRoom()
+                    }
+                    Button("取消", role: .cancel) { }
+                } message: {
+                    Text(leaveMessage)
                 }
             }
 
@@ -129,6 +148,25 @@ struct GameView: View {
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 14)
+    }
+
+    private var leaveMessage: String {
+        if campaign.isHost && vm.isSubmitting {
+            return "AI 正在處理中，離開會中止這次請求。之後可以在大廳用房間 ID 回來。"
+        }
+        return "之後可以在大廳用房間 ID 回到這場冒險。"
+    }
+
+    private func headerIconButton(systemName: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Palette.vellum)
+                .frame(width: 40, height: 40)
+                .background(Palette.feltRaised, in: Circle())
+                .overlay(Circle().strokeBorder(Palette.hairline, lineWidth: 1))
+        }
+        .accessibilityLabel(label)
     }
 
     private var roomIDButton: some View {
@@ -288,7 +326,7 @@ struct GameView: View {
         .padding(.top, 4)
     }
 
-    /// 房主推進遊戲的按鈕：大廳時開始，全員確認後繼續
+    /// 房主推進遊戲的按鈕：大廳時開始；有人確認後就能繼續，沒到齊時先跟房主確認
     @ViewBuilder
     private var hostAdvanceButton: some View {
         if campaign.phase == .lobby && campaign.isHost {
@@ -298,10 +336,19 @@ struct GameView: View {
             }
         }
 
-        if campaign.phase == .collectingActions && campaign.isHost && campaign.areAllPlayersReady {
-            actionButton(title: vm.isSubmitting ? "結算中..." : "繼續", style: .primary, isDisabled: vm.isSubmitting) {
-                vm.isShowingRoomStatus = false
-                vm.continueRound()
+        if campaign.phase == .collectingActions && campaign.isHost && !campaign.confirmedActions.isEmpty {
+            let isEveryoneReady = campaign.areAllPlayersReady
+            actionButton(
+                title: vm.isSubmitting ? "結算中..." : "繼續",
+                style: isEveryoneReady ? .primary : .secondary,
+                isDisabled: vm.isSubmitting
+            ) {
+                if isEveryoneReady {
+                    vm.isShowingRoomStatus = false
+                    vm.continueRound()
+                } else {
+                    isConfirmingEarlyContinue = true
+                }
             }
         }
     }
@@ -423,19 +470,40 @@ struct GameView: View {
 
     @ViewBuilder
     private func thinkingRow(_ text: String) -> some View {
+        if campaign.isHost && !vm.isSubmitting {
+            interruptedRow
+        } else {
+            HStack(spacing: 12) {
+                ThinkingDie()
+                    .frame(width: 28)
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.sage)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if campaign.isHost {
+                actionButton(title: "取消", style: .secondary, isDisabled: false) {
+                    vm.cancelAIRequest()
+                }
+            }
+        }
+    }
+
+    /// 只有房主會呼叫 AI；房主這台沒有進行中的請求，代表上次請求被中斷了
+    @ViewBuilder
+    private var interruptedRow: some View {
         HStack(spacing: 12) {
-            ThinkingDie()
+            D20Emblem(glow: 0)
                 .frame(width: 28)
-            Text(text)
+            Text("上一次的 AI 請求沒有完成，可能是 App 在等待時被關閉了。")
                 .font(.subheadline)
                 .foregroundStyle(Palette.sage)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
 
-        if campaign.isHost && vm.isSubmitting {
-            actionButton(title: "取消", style: .secondary, isDisabled: false) {
-                vm.cancelAIRequest()
-            }
+        actionButton(title: "重新送出", style: .primary, isDisabled: false) {
+            vm.retryInterruptedRequest()
         }
     }
 
@@ -471,6 +539,9 @@ struct GameView: View {
         case .collectingActions:
             if campaign.areAllPlayersReady {
                 return campaign.isHost ? "所有玩家都已確認，房主可以繼續。" : "所有玩家都已確認，等待房主繼續。"
+            }
+            if campaign.isHost && !campaign.confirmedActions.isEmpty {
+                return "等不到其他人時，房主也可以直接繼續，沒確認的玩家這回合視為沒有行動。"
             }
             return "每位玩家先編輯自己的草稿，確認後才會公開。"
         case .resolvingTurn:

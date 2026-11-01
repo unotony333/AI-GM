@@ -39,6 +39,14 @@ final class GameEngine {
             "\(action.playerName)：\(action.text)"
         }.joined(separator: "\n")
 
+        // 房主可以不等所有人就結算，讓 AI 知道誰這回合沒有行動
+        let idlePlayerNames = players
+            .filter { player in !actions.contains { $0.playerId == player.id } }
+            .map(\.name)
+        let idleSummary = idlePlayerNames.isEmpty
+            ? ""
+            : "\n\n本回合沒有行動的玩家：\(idlePlayerNames.joined(separator: "、"))"
+
         return """
         請根據目前劇情與玩家行動結算本回合。
 
@@ -49,7 +57,7 @@ final class GameEngine {
         \(messageSummary)
 
         本回合行動：
-        \(actionSummary)
+        \(actionSummary)\(idleSummary)
 
         請用JSON回應：
         {

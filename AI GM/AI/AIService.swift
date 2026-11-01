@@ -27,11 +27,41 @@ final class AIService {
         let content: String
     }
 
-    enum AIServiceError: Error {
+    enum AIServiceError: LocalizedError {
         case invalidResponse
         case invalidURL
         case httpError(statusCode: Int, message: String?)
         case parseError(rawContent: String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidResponse:
+                return "看不懂 AI 服務的回應，請確認 Base URL 與供應商是否選對。"
+            case .invalidURL:
+                return "Base URL 格式不正確。"
+            case .httpError(let statusCode, let message):
+                let reason: String
+                switch statusCode {
+                case 401, 403:
+                    reason = "API Key 無效或沒有使用權限"
+                case 404:
+                    reason = "找不到這個 Model 或 API 位址"
+                case 429:
+                    reason = "請求太頻繁或額度已用完，請稍後再試"
+                case 500...:
+                    reason = "AI 服務暫時無法使用，請稍後再試"
+                default:
+                    reason = "AI 服務拒絕了這次請求"
+                }
+                // 伺服器訊息可能是整頁 HTML，只保留開頭
+                guard let message, !message.isEmpty else {
+                    return "\(reason)（HTTP \(statusCode)）"
+                }
+                return "\(reason)（HTTP \(statusCode)）：\(message.prefix(200))"
+            case .parseError:
+                return "AI 回傳了空白內容。"
+            }
+        }
     }
 
     private let configuration: AIHostConfiguration

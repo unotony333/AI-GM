@@ -131,6 +131,8 @@ final class AIServiceTests: XCTestCase {
                 return
             }
             XCTAssertEqual(statusCode, 401)
+            XCTAssertTrue(error.localizedDescription.contains("API Key"), "401 應提示是 API Key 的問題")
+            XCTAssertTrue(error.localizedDescription.contains("Unauthorized"), "應保留伺服器回傳的原因")
         }
 
         XCTAssertEqual(mock.requestCount, 1, "Should NOT retry on 4xx error")

@@ -65,6 +65,12 @@ final class CampaignService: ObservableObject {
         !players.isEmpty && confirmedActions.count == players.count
     }
 
+    var playersWithoutAction: [Player] {
+        players.filter { player in
+            !confirmedActions.contains { $0.playerId == player.id }
+        }
+    }
+
     var myConfirmedAction: CampaignAction? {
         guard let userId = UserService.shared.sessionStatus.userID else { return nil }
         return confirmedActions.first { $0.playerId == userId }
@@ -132,6 +138,22 @@ final class CampaignService: ObservableObject {
         }
     }
 
+    /// 回到大廳；房間資料留在 Firestore，之後可以用房間 ID 再加入
+    func leaveCampaign() {
+        stopListening()
+        campaignId = nil
+        campaignName = ""
+        hostId = ""
+        phase = .lobby
+        provider = ""
+        model = ""
+        currentRoundId = nil
+        currentRoundNumber = 0
+        typedMessages = []
+        players = []
+        confirmedActions = []
+    }
+
     private func upsertPlayer(campaignId: String, playerId: String, playerName: String) async throws {
         try await db.collection("campaigns")
             .document(campaignId)
@@ -158,8 +180,8 @@ final class CampaignService: ObservableObject {
             try AIHostConfigurationStore.save(validatedConfiguration, campaignId: campaignId)
             
             try AIHostConfigurationStore.saveLastUsed(validatedConfiguration)
-            
-            try await updateCampaign([
+
+            try await updateCampaign(campaignId, [
                 "provider": validatedConfiguration.provider,
                 "model": validatedConfiguration.model,
                 "updatedAt": Timestamp()
@@ -196,6 +218,10 @@ final class CampaignService: ObservableObject {
             .collection("messages")
             .document()
 
+        try await document.setData(messagePayload(kind: kind, text: text, roundNumber: roundNumber))
+    }
+
+    private func messagePayload(kind: CampaignMessageKind, text: String, roundNumber: Int?) -> [String: Any] {
         var payload: [String: Any] = [
             "kind": kind.rawValue,
             "text": text,
@@ -206,7 +232,7 @@ final class CampaignService: ObservableObject {
             payload["roundNumber"] = roundNumber
         }
 
-        try await document.setData(payload)
+        return payload
     }
 
     // MARK: - Actions
@@ -240,13 +266,18 @@ final class CampaignService: ObservableObject {
         guard let campaignId, let currentRoundId else { return }
         let userId = try requireUserID()
 
+        // 標記為未確認而不是刪除：README 建議的 Firestore 規則只開放 create / update，
+        // 行動監聽本來就只抓已確認的行動
         try await db.collection("campaigns")
             .document(campaignId)
             .collection("rounds")
             .document(currentRoundId)
             .collection("actions")
             .document(userId)
-            .delete()
+            .setData([
+                "isConfirmed": false,
+                "updatedAt": Timestamp()
+            ], merge: true)
     }
 
     // MARK: - Flow
@@ -260,7 +291,7 @@ final class CampaignService: ObservableObject {
                 return
             }
 
-            try await updateCampaign([
+            try await updateCampaign(campaignId, [
                 "phase": CampaignPhase.starting.rawValue,
                 "updatedAt": Timestamp()
             ])
@@ -271,30 +302,28 @@ final class CampaignService: ObservableObject {
                 configuration: configuration
             )
 
-            try await publishMessage(kind: .opening, text: narration, roundNumber: nil)
-            try await createRound(number: 1)
-            try await updateCampaign([
-                "phase": CampaignPhase.collectingActions.rawValue,
-                "updatedAt": Timestamp()
-            ])
+            try await commitNarration(
+                campaignId: campaignId,
+                kind: .opening,
+                text: narration,
+                roundNumber: nil,
+                nextRoundNumber: 1
+            )
         } catch {
-            if error is CancellationError {
-                try? await updateCampaign([
-                    "phase": CampaignPhase.lobby.rawValue,
-                    "updatedAt": Timestamp()
-                ])
-                return
-            }
-            try? await updateCampaign([
+            // 用開始時的 campaignId 退回，房主中途離開房間也能還原
+            try? await updateCampaign(campaignId, [
                 "phase": CampaignPhase.lobby.rawValue,
                 "updatedAt": Timestamp()
             ])
-            localErrorMessage = "開始遊戲失敗：\(error.localizedDescription)"
+            if !isCancellation(error) {
+                localErrorMessage = "開始遊戲失敗：\(error.localizedDescription)"
+            }
         }
     }
 
+    /// 至少一人確認就能結算，沒確認的玩家這回合視為沒有行動，避免有人離線就卡住
     func continueRound(using engine: GameEngine) async {
-        guard isHost, areAllPlayersReady, let campaignId else { return }
+        guard isHost, !confirmedActions.isEmpty, let campaignId else { return }
 
         do {
             guard let configuration = try AIHostConfigurationStore.load(campaignId: campaignId) else {
@@ -302,7 +331,7 @@ final class CampaignService: ObservableObject {
                 return
             }
 
-            try await updateCampaign([
+            try await updateCampaign(campaignId, [
                 "phase": CampaignPhase.resolvingTurn.rawValue,
                 "updatedAt": Timestamp()
             ])
@@ -315,57 +344,60 @@ final class CampaignService: ObservableObject {
                 configuration: configuration
             )
 
-            try await publishMessage(
+            try await commitNarration(
+                campaignId: campaignId,
                 kind: .narration,
                 text: narration,
-                roundNumber: currentRoundNumber == 0 ? nil : currentRoundNumber
+                roundNumber: currentRoundNumber == 0 ? nil : currentRoundNumber,
+                nextRoundNumber: currentRoundNumber + 1
             )
-            try await createRound(number: currentRoundNumber + 1)
-            try await updateCampaign([
-                "phase": CampaignPhase.collectingActions.rawValue,
-                "updatedAt": Timestamp()
-            ])
         } catch {
-            if error is CancellationError {
-                try? await updateCampaign([
-                    "phase": CampaignPhase.collectingActions.rawValue,
-                    "updatedAt": Timestamp()
-                ])
-                return
-            }
-            try? await updateCampaign([
+            try? await updateCampaign(campaignId, [
                 "phase": CampaignPhase.collectingActions.rawValue,
                 "updatedAt": Timestamp()
             ])
-            localErrorMessage = "結算回合失敗：\(error.localizedDescription)"
+            if !isCancellation(error) {
+                localErrorMessage = "結算回合失敗：\(error.localizedDescription)"
+            }
         }
     }
 
-    private func createRound(number: Int) async throws {
-        guard let campaignId else { return }
+    /// 敘事、下一回合與 phase 一次寫入，避免中途失敗留下重複的敘事或半套回合
+    private func commitNarration(
+        campaignId: String,
+        kind: CampaignMessageKind,
+        text: String,
+        roundNumber: Int?,
+        nextRoundNumber: Int
+    ) async throws {
+        let campaignDocument = db.collection("campaigns").document(campaignId)
+        let messageDocument = campaignDocument.collection("messages").document()
+        let roundDocument = campaignDocument.collection("rounds").document()
 
-        let roundDocument = db.collection("campaigns")
-            .document(campaignId)
-            .collection("rounds")
-            .document()
-
-        try await roundDocument.setData([
-            "number": number,
+        let batch = db.batch()
+        batch.setData(messagePayload(kind: kind, text: text, roundNumber: roundNumber), forDocument: messageDocument)
+        batch.setData([
+            "number": nextRoundNumber,
             "status": RoundStatus.collecting.rawValue,
             "createdAt": Timestamp()
-        ])
-
-        try await updateCampaign([
+        ], forDocument: roundDocument)
+        batch.setData([
             "currentRoundId": roundDocument.documentID,
+            "phase": CampaignPhase.collectingActions.rawValue,
             "updatedAt": Timestamp()
-        ])
+        ], forDocument: campaignDocument, merge: true)
+        try await batch.commit()
     }
 
-    private func updateCampaign(_ data: [String: Any]) async throws {
-        guard let campaignId else { return }
+    private func updateCampaign(_ campaignId: String, _ data: [String: Any]) async throws {
         try await db.collection("campaigns")
             .document(campaignId)
             .setData(data, merge: true)
+    }
+
+    /// 進行中的網路請求被取消時，URLSession 丟的是 URLError.cancelled 而不是 CancellationError
+    private func isCancellation(_ error: Error) -> Bool {
+        error is CancellationError || (error as? URLError)?.code == .cancelled
     }
 
     private func requireUserID() throws -> String {

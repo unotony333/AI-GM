@@ -187,11 +187,24 @@ struct AIHostConfiguration: Codable, Equatable {
         apiKey = ""
     }
 
-    enum ValidationError: Error, Equatable {
+    enum ValidationError: LocalizedError, Equatable {
         case emptyProvider
         case emptyModel
         case emptyBaseURL
         case invalidBaseURL
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyProvider:
+                return "AI 供應商不能空白。"
+            case .emptyModel:
+                return "Model 不能空白。"
+            case .emptyBaseURL:
+                return "Base URL 不能空白。"
+            case .invalidBaseURL:
+                return "Base URL 格式不正確，需要以 http:// 或 https:// 開頭。"
+            }
+        }
     }
 
     var trimmedProvider: String {

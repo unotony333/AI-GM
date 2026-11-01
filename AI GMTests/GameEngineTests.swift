@@ -51,4 +51,28 @@ final class GameEngineTests: XCTestCase {
         XCTAssertTrue(prompt.contains("我拔出劍攻擊"), "Prompt should contain player action")
         XCTAssertTrue(prompt.contains("narration"), "Prompt should request JSON narration format")
     }
+
+    func testRoundPromptListsPlayersWithoutAction() {
+        let hero = Player(id: "p1", name: "勇者阿明", strength: 2, dexterity: 2, intelligence: 2, hp: 20)
+        let mage = Player(id: "p2", name: "魔法師小花", strength: 2, dexterity: 2, intelligence: 2, hp: 20)
+        let actions = [
+            CampaignAction(id: "p1", playerId: "p1", playerName: "勇者阿明", text: "我拔出劍攻擊", isConfirmed: true),
+        ]
+
+        let prompt = engine.makeRoundPrompt(messages: [], players: [hero, mage], actions: actions)
+
+        XCTAssertTrue(prompt.contains("本回合沒有行動的玩家：魔法師小花"), "沒確認的玩家應該告訴 AI")
+        XCTAssertFalse(prompt.contains("沒有行動的玩家：勇者阿明"), "有行動的玩家不該被列為沒有行動")
+    }
+
+    func testRoundPromptOmitsIdleSectionWhenEveryoneActed() {
+        let hero = Player(id: "p1", name: "勇者阿明", strength: 2, dexterity: 2, intelligence: 2, hp: 20)
+        let actions = [
+            CampaignAction(id: "p1", playerId: "p1", playerName: "勇者阿明", text: "我拔出劍攻擊", isConfirmed: true),
+        ]
+
+        let prompt = engine.makeRoundPrompt(messages: [], players: [hero], actions: actions)
+
+        XCTAssertFalse(prompt.contains("沒有行動的玩家"), "全員都行動時不該出現這段")
+    }
 }
