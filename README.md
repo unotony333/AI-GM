@@ -64,7 +64,7 @@
     <td align="center" width="33%"><img src="assets/screenshots/04-room-waiting.webp" width="230" alt="房間等待中"></td>
     <td valign="middle">
       <p>房間頂部顯示房間名稱、可一鍵複製的 <b>Room ID</b>，以及目前使用的 AI 供應商與 Model。</p>
-      <p>「房間與玩家狀態」面板列出所有玩家的屬性與確認狀態。玩家到齊後，房主點「<b>開始遊戲</b>」，AI 便會依角色與設定生成開場白。</p>
+      <p>「隊伍」列顯示所有玩家，點開可看每個人的 HP、屬性與確認狀態。玩家到齊後，房主點「<b>開始遊戲</b>」，AI 便會依角色與設定生成開場白。</p>
       <p>遊戲進行中，房主也可隨時點右上角的設定按鈕調整 AI 設定。</p>
     </td>
   </tr>
@@ -79,9 +79,9 @@
     <td align="center" width="33%"><img src="assets/screenshots/07-gm-narration.webp" width="230" alt="GM 敘事"></td>
   </tr>
   <tr>
-    <td align="center"><b>AI 開場</b><br><sub>每位玩家輸入本回合想做的事並確認</sub></td>
+    <td align="center"><b>AI 開場</b><br><sub>GM 敘事以書頁排版呈現，每位玩家輸入本回合想做的事並確認</sub></td>
     <td align="center"><b>全員確認</b><br><sub>確認後仍可「取消確認並編輯」；到齊後房主按「繼續」</sub></td>
-    <td align="center"><b>GM 結算</b><br><sub>AI 綜合所有人的行動生成敘事，進入下一回合</sub></td>
+    <td align="center"><b>GM 結算</b><br><sub>AI 綜合所有人的行動生成敘事，依回合分章並進入下一回合</sub></td>
   </tr>
 </table>
 
@@ -263,7 +263,10 @@ AI GM/
 │       ├── LobbyViewModel.swift       # 大廳邏輯
 │       ├── AISettingsSheet.swift      # AI 設定 Sheet
 │       ├── AISettingsViewModel.swift  # AI 設定邏輯
-│       ├── MessageBubbleView.swift    # 訊息氣泡元件
+│       ├── MessageBubbleView.swift    # 冒險紀錄排版（GM 敘事 / 玩家 / 系統）
+│       ├── PartyViews.swift           # 隊伍列：玩家頭像、HP 條、角色卡
+│       ├── D20Emblem.swift            # D20 骰子圖示與 AI 思考中動畫
+│       ├── Theme.swift                # 配色、宋體字型、桌布背景
 │       └── SharedComponents.swift     # 共用 UI 元件
 ├── AI GMTests/
 │   ├── AIServiceTests.swift               # AI 請求 / 回應 / 重試邏輯測試
