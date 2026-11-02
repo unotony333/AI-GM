@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os
 internal import Combine
 
 @MainActor
@@ -47,6 +48,16 @@ final class AISettingsViewModel: ObservableObject {
         settings.configuration
     }
 
+    /// 目前設定不能拿來建房的原因（例如雲端供應商沒填 API Key），沒問題時是 nil
+    var hostingIssue: String? {
+        do {
+            _ = try configuration.validatedForHosting()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
     func present() {
         draft = settings
         isPresented = true
@@ -61,10 +72,22 @@ final class AISettingsViewModel: ObservableObject {
         settings = draft
         isPresented = false
 
-        if campaign.campaignId != nil && campaign.isHost {
+        if campaign.campaignId == nil {
+            saveAsLastUsed()
+        } else if campaign.isHost {
             Task {
                 await campaign.updateAIConfiguration(configuration)
             }
+        }
+    }
+
+    /// 在大廳改的設定也要馬上存，不然還沒建房就關掉 App 會整個不見。
+    /// 格式不對時先不存，大廳會直接顯示問題
+    private func saveAsLastUsed() {
+        do {
+            try AIHostConfigurationStore.saveLastUsed(configuration)
+        } catch {
+            AppLogger.ai.error("Saving lobby AI settings failed: \(error.localizedDescription)")
         }
     }
 

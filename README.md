@@ -93,7 +93,6 @@
 | `starting` | 房主已開始，正在向 AI 取得開場白 | ② → ③ |
 | `collectingActions` | 玩家輸入並確認本回合行動 | ③ |
 | `resolvingTurn` | 房主已送出所有行動，AI 正在結算 | ③ |
-| `finished` | 冒險結束 | — |
 
 ---
 
@@ -216,8 +215,6 @@ open "AI GM.xcodeproj"
 | 模型 | 說明 |
 |------|------|
 | `Player` | 玩家 ID、名稱、HP/MaxHP、STR/DEX/INT |
-| `CampaignRoom` | 房間資訊、當前 Phase、Provider、Model |
-| `CampaignRound` | 回合編號與狀態 |
 | `CampaignAction` | 玩家行動文字與確認狀態 |
 | `CampaignMessage` | AI 敘事 / 玩家訊息紀錄（opening / narration / player / system） |
 
@@ -272,6 +269,7 @@ AI GM/
 │   ├── AIServiceTests.swift               # AI 請求 / 回應 / 重試邏輯測試
 │   ├── GameEngineTests.swift              # Prompt 組裝測試
 │   ├── FirebaseSessionGateTests.swift     # 認證閘門測試
+│   ├── AIHostConfigurationTests.swift      # AI 設定檢查測試
 │   ├── AIHostConfigurationStoreTests.swift # AI 設定儲存測試
 │   └── Mocks/
 │       └── MockHTTPClient.swift           # 測試用 HTTP 假實作
@@ -285,11 +283,19 @@ AI GM/
 
 ## 測試
 
+先列出這台 Mac 上可用的模擬器：
+
+```bash
+xcrun simctl list devices available
+```
+
+再把下面的 `<模擬器名稱>` 換成其中一台（例如 `iPhone 17`）：
+
 ```bash
 xcodebuild test \
   -project "AI GM.xcodeproj" \
   -scheme "AI GM" \
-  -destination "platform=iOS Simulator,name=iPhone 16"
+  -destination "platform=iOS Simulator,name=<模擬器名稱>"
 ```
 
 | 測試檔案 | 涵蓋範圍 |
@@ -297,7 +303,8 @@ xcodebuild test \
 | `AIServiceTests` | AI API 請求 / JSON 解析 / 重試邏輯 |
 | `GameEngineTests` | Prompt 組裝（開場白 / 回合結算） |
 | `FirebaseSessionGateTests` | 認證閘門狀態判斷 |
-| `AIHostConfigurationStoreTests` | AI 設定的儲存與讀取 |
+| `AIHostConfigurationTests` | 建房前的 AI 設定檢查（雲端供應商必須填 API Key） |
+| `AIHostConfigurationStoreTests` | AI 設定的儲存與讀取、只保留最近房間的設定，且不動到 App 真正的設定 |
 
 測試使用 `MockHTTPClient` 注入假 HTTP 回應，不需要實際的 AI API Key 或 Firebase 連線。
 
@@ -307,6 +314,7 @@ xcodebuild test \
 
 - `GoogleService-Info.plist` 已加入 `.gitignore`，請確保每位開發者自行配置
 - API Key 透過 iOS Keychain 加密儲存於本機，**不會**上傳至 Firebase
+- 每台裝置只保留最近 10 個房間的 AI 設定；更早的房間回去當房主時，需要從右上角的 AI 設定重新儲存一次
 - 使用 Ollama 或 LM Studio 等本機模型時，需確保裝置與模型主機在同一網路環境
 - 本專案使用 Firebase 匿名認證，User ID 不具名，清除 App 資料後 ID 會重置
 

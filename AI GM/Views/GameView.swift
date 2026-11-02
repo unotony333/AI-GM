@@ -460,11 +460,6 @@ struct GameView: View {
         case .resolvingTurn:
             thinkingRow("房主正在把所有已確認行動交給 AI 結算...")
 
-        case .finished:
-            Text("這場冒險已經結束。")
-                .font(.subheadline)
-                .foregroundStyle(Palette.sage)
-                .frame(maxWidth: .infinity, alignment: .center)
         }
     }
 
@@ -546,8 +541,6 @@ struct GameView: View {
             return "每位玩家先編輯自己的草稿，確認後才會公開。"
         case .resolvingTurn:
             return "AI 正在結算本回合。"
-        case .finished:
-            return "本房間已結束。"
         }
     }
 }

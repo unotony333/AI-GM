@@ -45,6 +45,9 @@ final class CampaignService: ObservableObject {
     var currentRoundListener: ListenerRegistration?
     var currentRoundActionsListener: ListenerRegistration?
 
+    /// 換了裝置、重裝 App，或房間太久沒用、設定已被清掉時會遇到
+    private static let missingConfigurationMessage = "這台裝置沒有這個房間的 AI 設定，請點右上角的 AI 設定重新填寫。"
+
     private enum DefaultStats {
         static let hp = 20
         static let strength = 2
@@ -81,7 +84,7 @@ final class CampaignService: ObservableObject {
     func createCampaign(name: String, playerName: String, configuration: AIHostConfiguration) async {
         do {
             let userId = try requireUserID()
-            let validatedConfiguration = try configuration.validated()
+            let validatedConfiguration = try configuration.validatedForHosting()
             let doc = db.collection("campaigns").document()
             let now = Timestamp()
 
@@ -175,8 +178,8 @@ final class CampaignService: ObservableObject {
         guard isHost, let campaignId else { return }
 
         do {
-            let validatedConfiguration = try configuration.validated()
-            
+            let validatedConfiguration = try configuration.validatedForHosting()
+
             try AIHostConfigurationStore.save(validatedConfiguration, campaignId: campaignId)
             
             try AIHostConfigurationStore.saveLastUsed(validatedConfiguration)
@@ -195,31 +198,6 @@ final class CampaignService: ObservableObject {
     }
 
     // MARK: - Messaging
-
-    func sendMessage(_ text: String) {
-        Task {
-            do {
-                try await publishMessage(
-                    kind: .player,
-                    text: text,
-                    roundNumber: currentRoundNumber == 0 ? nil : currentRoundNumber
-                )
-            } catch {
-                localErrorMessage = "送出訊息失敗：\(error.localizedDescription)"
-            }
-        }
-    }
-
-    private func publishMessage(kind: CampaignMessageKind, text: String, roundNumber: Int?) async throws {
-        guard let campaignId else { return }
-
-        let document = db.collection("campaigns")
-            .document(campaignId)
-            .collection("messages")
-            .document()
-
-        try await document.setData(messagePayload(kind: kind, text: text, roundNumber: roundNumber))
-    }
 
     private func messagePayload(kind: CampaignMessageKind, text: String, roundNumber: Int?) -> [String: Any] {
         var payload: [String: Any] = [
@@ -287,7 +265,7 @@ final class CampaignService: ObservableObject {
 
         do {
             guard let configuration = try AIHostConfigurationStore.load(campaignId: campaignId) else {
-                localErrorMessage = "找不到房主 AI 設定"
+                localErrorMessage = Self.missingConfigurationMessage
                 return
             }
 
@@ -327,7 +305,7 @@ final class CampaignService: ObservableObject {
 
         do {
             guard let configuration = try AIHostConfigurationStore.load(campaignId: campaignId) else {
-                localErrorMessage = "找不到房主 AI 設定"
+                localErrorMessage = Self.missingConfigurationMessage
                 return
             }
 

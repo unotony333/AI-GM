@@ -119,6 +119,16 @@ enum AIProviderPreset: String, CaseIterable, Identifiable {
         }
     }
 
+    /// 雲端服務一定要 API Key；本機與自訂服務不一定需要，交給使用者決定
+    var requiresAPIKey: Bool {
+        switch self {
+        case .openAI, .deepSeek, .groq, .openRouter:
+            return true
+        case .ollama, .lmStudio, .customOpenAICompatible, .customOllama:
+            return false
+        }
+    }
+
     func apply(to configuration: AIHostConfiguration) -> AIHostConfiguration {
         AIHostConfiguration(
             provider: provider,
@@ -192,6 +202,7 @@ struct AIHostConfiguration: Codable, Equatable {
         case emptyModel
         case emptyBaseURL
         case invalidBaseURL
+        case missingAPIKey(provider: String)
 
         var errorDescription: String? {
             switch self {
@@ -203,6 +214,8 @@ struct AIHostConfiguration: Codable, Equatable {
                 return "Base URL 不能空白。"
             case .invalidBaseURL:
                 return "Base URL 格式不正確，需要以 http:// 或 https:// 開頭。"
+            case .missingAPIKey(let provider):
+                return "\(provider) 需要 API Key，請在 AI 設定填入。"
             }
         }
     }
@@ -247,6 +260,18 @@ struct AIHostConfiguration: Codable, Equatable {
               scheme == "http" || scheme == "https",
               url.host != nil else {
             throw ValidationError.invalidBaseURL
+        }
+
+        return configuration
+    }
+
+    /// 建立房間或更新房間設定時用：雲端供應商還要有 API Key，免得等到開始遊戲才失敗。
+    /// 讀取已存的設定時不檢查，沒填 Key 的人才打得開設定補上
+    func validatedForHosting() throws -> AIHostConfiguration {
+        let configuration = try validated()
+
+        if configuration.apiKey.isEmpty && AIProviderPreset.inferred(from: configuration).requiresAPIKey {
+            throw ValidationError.missingAPIKey(provider: configuration.provider)
         }
 
         return configuration
@@ -361,12 +386,23 @@ enum AIHostConfigurationStore {
 
     private static let lastUsedApiKeyKey = "\(apiKeyPrefix)lastUsed"
 
+    /// 有存設定的房間，最近用過的在前
+    private static let recentCampaignIdsKey = "hostAIConfigRecentCampaignIds"
+
+    /// 只留最近幾個房間的設定，不然每建一個房間 Keychain 就多一份 API Key
+    static let maxStoredCampaigns = 10
+
     static func save(_ configuration: AIHostConfiguration, campaignId: String, storage: Storage = .app) throws {
         try save(configuration, configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId), storage: storage)
+        markRecentlyUsed(campaignId: campaignId, storage: storage)
     }
 
     static func load(campaignId: String, storage: Storage = .app) throws -> AIHostConfiguration? {
-        try load(configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId), storage: storage)
+        let configuration = try load(configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId), storage: storage)
+        if configuration != nil {
+            markRecentlyUsed(campaignId: campaignId, storage: storage)
+        }
+        return configuration
     }
 
     static func saveLastUsed(_ configuration: AIHostConfiguration, storage: Storage = .app) throws {
@@ -383,8 +419,36 @@ enum AIHostConfigurationStore {
     }
 
     static func clear(campaignId: String, storage: Storage = .app) {
+        removeConfiguration(campaignId: campaignId, storage: storage)
+        let remaining = storedCampaignIds(storage: storage).filter { $0 != campaignId }
+        storage.defaults.set(remaining, forKey: recentCampaignIdsKey)
+    }
+
+    private static func removeConfiguration(campaignId: String, storage: Storage) {
         storage.defaults.removeObject(forKey: configKey(campaignId: campaignId))
         KeychainService.delete(key: apiKeyKey(campaignId: campaignId), service: storage.keychainService)
+    }
+
+    /// 把房間排到最前面，超出上限的舊房間連同 API Key 一起刪掉
+    private static func markRecentlyUsed(campaignId: String, storage: Storage) {
+        var campaignIds = storedCampaignIds(storage: storage).filter { $0 != campaignId }
+        campaignIds.insert(campaignId, at: 0)
+
+        for staleCampaignId in campaignIds.dropFirst(maxStoredCampaigns) {
+            removeConfiguration(campaignId: staleCampaignId, storage: storage)
+        }
+        storage.defaults.set(Array(campaignIds.prefix(maxStoredCampaigns)), forKey: recentCampaignIdsKey)
+    }
+
+    /// 有這份清單之前存的房間 API Key 不知道先後，排在最後面，超過上限時先清掉
+    private static func storedCampaignIds(storage: Storage) -> [String] {
+        let recorded = storage.defaults.stringArray(forKey: recentCampaignIdsKey) ?? []
+        let legacy = KeychainService.allKeys(service: storage.keychainService)
+            .filter { $0.hasPrefix(apiKeyPrefix) && $0 != lastUsedApiKeyKey }
+            .map { String($0.dropFirst(apiKeyPrefix.count)) }
+            .filter { !recorded.contains($0) }
+            .sorted()
+        return recorded + legacy
     }
 
     private static func save(_ configuration: AIHostConfiguration, configKey: String, apiKeyKey: String, storage: Storage) throws {

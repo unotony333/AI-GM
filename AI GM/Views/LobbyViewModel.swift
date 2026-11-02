@@ -61,9 +61,10 @@ final class LobbyViewModel: ObservableObject {
     func createRoom(campaign: CampaignService, configuration: AIHostConfiguration) async {
         guard !isSubmitting else { return }
         isSubmitting = true
+        let trimmedRoomName = roomName.trimmingCharacters(in: .whitespacesAndNewlines)
         await campaign.createCampaign(
-            name: roomName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "冒險房間" : roomName,
-            playerName: playerName,
+            name: trimmedRoomName.isEmpty ? "冒險房間" : trimmedRoomName,
+            playerName: playerName.trimmingCharacters(in: .whitespacesAndNewlines),
             configuration: configuration
         )
         isSubmitting = false

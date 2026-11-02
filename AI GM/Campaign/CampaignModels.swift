@@ -12,14 +12,10 @@ enum CampaignPhase: String, Codable {
     case starting
     case collectingActions
     case resolvingTurn
-    case finished
 }
 
 enum RoundStatus: String, Codable {
     case collecting
-    case ready
-    case resolving
-    case resolved
 }
 
 enum CampaignMessageKind: String, Codable {
@@ -27,22 +23,6 @@ enum CampaignMessageKind: String, Codable {
     case system
     case narration
     case player
-}
-
-struct CampaignRoom: Identifiable, Codable, Equatable {
-    let id: String
-    let name: String
-    let hostId: String
-    let phase: CampaignPhase
-    let provider: String
-    let model: String
-    let currentRoundId: String?
-}
-
-struct CampaignRound: Identifiable, Codable, Equatable {
-    let id: String
-    let number: Int
-    let status: RoundStatus
 }
 
 struct CampaignAction: Identifiable, Codable, Equatable {

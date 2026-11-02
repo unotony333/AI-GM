@@ -137,7 +137,6 @@ func phaseLabel(_ phase: CampaignPhase) -> String {
     case .starting: return "開場中"
     case .collectingActions: return "等待行動"
     case .resolvingTurn: return "結算中"
-    case .finished: return "已結束"
     }
 }
 
@@ -147,7 +146,6 @@ func phaseColor(_ phase: CampaignPhase) -> Color {
     case .starting: return Palette.candle
     case .collectingActions: return Palette.moss
     case .resolvingTurn: return Palette.candle
-    case .finished: return Palette.sageDim
     }
 }
 

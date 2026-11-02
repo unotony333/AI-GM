@@ -62,6 +62,29 @@ enum KeychainService {
         return value
     }
 
+    /// 列出某個 service 底下所有項目的 key，用來找出不再需要的舊資料
+    static func allKeys(service: String = defaultService) -> [String] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status != errSecSuccess && status != errSecItemNotFound {
+            AppLogger.keychain.error("Keychain list failed: OSStatus \(status)")
+        }
+
+        guard status == errSecSuccess, let items = result as? [[String: Any]] else {
+            return []
+        }
+
+        return items.compactMap { $0[kSecAttrAccount as String] as? String }
+    }
+
     static func delete(key: String, service: String = defaultService) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,

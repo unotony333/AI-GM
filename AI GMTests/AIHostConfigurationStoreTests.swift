@@ -33,8 +33,9 @@ final class AIHostConfigurationStoreTests: XCTestCase {
     }
 
     override func tearDown() {
-        AIHostConfigurationStore.clearLastUsed(storage: storage)
-        AIHostConfigurationStore.clear(campaignId: "campaign-A", storage: storage)
+        for key in KeychainService.allKeys(service: Self.keychainService) {
+            KeychainService.delete(key: key, service: Self.keychainService)
+        }
         storage.defaults.removePersistentDomain(forName: Self.suiteName)
         storage = nil
         super.tearDown()
@@ -74,5 +75,54 @@ final class AIHostConfigurationStoreTests: XCTestCase {
 
         XCTAssertEqual(UserDefaults.standard.data(forKey: appConfigKey), appConfigBefore, "測試不該改動 App 的 AI 設定")
         XCTAssertEqual(KeychainService.load(key: appApiKeyKey), appApiKeyBefore, "測試不該改動 App 的 API Key")
+    }
+
+    func testOldestCampaignConfigurationIsRemovedBeyondLimit() throws {
+        let limit = AIHostConfigurationStore.maxStoredCampaigns
+        for index in 0...limit {
+            try AIHostConfigurationStore.save(makeConfiguration(), campaignId: "campaign-\(index)", storage: storage)
+        }
+
+        XCTAssertNil(try AIHostConfigurationStore.load(campaignId: "campaign-0", storage: storage), "超過上限時最舊的房間設定應該被刪掉")
+        XCTAssertNil(KeychainService.load(key: "aiApiKey.campaign-0", service: Self.keychainService), "最舊房間的 API Key 也要一起刪掉")
+        XCTAssertNotNil(try AIHostConfigurationStore.load(campaignId: "campaign-1", storage: storage))
+        XCTAssertNotNil(try AIHostConfigurationStore.load(campaignId: "campaign-\(limit)", storage: storage))
+    }
+
+    func testLoadingCampaignKeepsItFromBeingRemoved() throws {
+        let limit = AIHostConfigurationStore.maxStoredCampaigns
+        for index in 0..<limit {
+            try AIHostConfigurationStore.save(makeConfiguration(), campaignId: "campaign-\(index)", storage: storage)
+        }
+
+        // 最舊的房間剛被拿來玩過，下一個被清掉的應該換成第二舊的
+        _ = try AIHostConfigurationStore.load(campaignId: "campaign-0", storage: storage)
+        try AIHostConfigurationStore.save(makeConfiguration(), campaignId: "campaign-new", storage: storage)
+
+        XCTAssertNotNil(try AIHostConfigurationStore.load(campaignId: "campaign-0", storage: storage), "最近玩過的房間不該被清掉")
+        XCTAssertNil(try AIHostConfigurationStore.load(campaignId: "campaign-1", storage: storage))
+    }
+
+    func testLegacyCampaignApiKeysAreRemovedFirst() throws {
+        // 模擬舊版留下、沒有記錄順序的房間 API Key
+        try KeychainService.save(key: "aiApiKey.legacy-room", value: "old-secret", service: Self.keychainService)
+
+        let limit = AIHostConfigurationStore.maxStoredCampaigns
+        for index in 0..<limit {
+            try AIHostConfigurationStore.save(makeConfiguration(), campaignId: "campaign-\(index)", storage: storage)
+        }
+
+        XCTAssertNil(KeychainService.load(key: "aiApiKey.legacy-room", service: Self.keychainService), "舊版留下的 API Key 應該最先被清掉")
+        XCTAssertNotNil(try AIHostConfigurationStore.load(campaignId: "campaign-0", storage: storage))
+    }
+
+    func testLastUsedApiKeyIsNeverRemovedByCampaignLimit() throws {
+        try AIHostConfigurationStore.saveLastUsed(makeConfiguration(model: "deepseek-chat"), storage: storage)
+
+        for index in 0...AIHostConfigurationStore.maxStoredCampaigns {
+            try AIHostConfigurationStore.save(makeConfiguration(), campaignId: "campaign-\(index)", storage: storage)
+        }
+
+        XCTAssertEqual(try AIHostConfigurationStore.loadLastUsed(storage: storage)?.apiKey, "secret", "上次使用的設定不算在房間上限內")
     }
 }

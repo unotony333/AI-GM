@@ -115,9 +115,15 @@ struct LobbyView: View {
                 .buttonStyle(.plain)
                 .disabled(vm.isSubmitting)
 
-                Text("預設會自動帶入 Base URL 與建議 Model，API Key 要自行輸入。")
-                    .font(.caption)
-                    .foregroundStyle(Palette.sageDim)
+                if let hostingIssue = aiSettings.hostingIssue {
+                    Text(hostingIssue)
+                        .font(.caption)
+                        .foregroundStyle(Palette.candle)
+                } else {
+                    Text("預設會自動帶入 Base URL 與建議 Model，API Key 要自行輸入。")
+                        .font(.caption)
+                        .foregroundStyle(Palette.sageDim)
+                }
             }
 
             Button(vm.isSubmitting ? "建立中..." : "由房主建立房間") {
@@ -127,7 +133,8 @@ struct LobbyView: View {
             .disabled(
                 vm.isSubmitting ||
                 vm.firebaseBlockingMessage != nil ||
-                trimmedPlayerName.isEmpty
+                trimmedPlayerName.isEmpty ||
+                aiSettings.hostingIssue != nil
             )
         }
         .cardStyle()
