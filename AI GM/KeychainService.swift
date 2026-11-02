@@ -8,19 +8,19 @@ import Security
 import os
 
 enum KeychainService {
-    private static let service = "com.aigm.apikeys"
+    static let defaultService = "com.aigm.apikeys"
 
     enum KeychainError: Error {
         case saveFailed(OSStatus)
         case encodingFailed
     }
 
-    static func save(key: String, value: String) throws {
+    static func save(key: String, value: String, service: String = defaultService) throws {
         guard let data = value.data(using: .utf8) else {
             throw KeychainError.encodingFailed
         }
 
-        delete(key: key)
+        delete(key: key, service: service)
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -37,7 +37,7 @@ enum KeychainService {
         }
     }
 
-    static func load(key: String) -> String? {
+    static func load(key: String, service: String = defaultService) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -62,7 +62,7 @@ enum KeychainService {
         return value
     }
 
-    static func delete(key: String) {
+    static func delete(key: String, service: String = defaultService) {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

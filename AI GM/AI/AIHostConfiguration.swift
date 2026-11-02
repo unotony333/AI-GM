@@ -339,7 +339,15 @@ extension AIAPIFormat {
 }
 
 enum AIHostConfigurationStore {
-    private static let defaults = UserDefaults.standard
+    /// 設定與 API Key 存放的位置；測試改用獨立的 UserDefaults suite 與 Keychain service，
+    /// 才不會清掉 App 真正的設定
+    struct Storage {
+        let defaults: UserDefaults
+        let keychainService: String
+
+        static let app = Storage(defaults: .standard, keychainService: KeychainService.defaultService)
+    }
+
     private static let lastUsedKey = "hostAIConfig.lastUsed"
     private static let apiKeyPrefix = "aiApiKey."
 
@@ -353,49 +361,49 @@ enum AIHostConfigurationStore {
 
     private static let lastUsedApiKeyKey = "\(apiKeyPrefix)lastUsed"
 
-    static func save(_ configuration: AIHostConfiguration, campaignId: String) throws {
-        try save(configuration, configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId))
+    static func save(_ configuration: AIHostConfiguration, campaignId: String, storage: Storage = .app) throws {
+        try save(configuration, configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId), storage: storage)
     }
 
-    static func load(campaignId: String) throws -> AIHostConfiguration? {
-        try load(configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId))
+    static func load(campaignId: String, storage: Storage = .app) throws -> AIHostConfiguration? {
+        try load(configKey: configKey(campaignId: campaignId), apiKeyKey: apiKeyKey(campaignId: campaignId), storage: storage)
     }
 
-    static func saveLastUsed(_ configuration: AIHostConfiguration) throws {
-        try save(configuration, configKey: lastUsedKey, apiKeyKey: lastUsedApiKeyKey)
+    static func saveLastUsed(_ configuration: AIHostConfiguration, storage: Storage = .app) throws {
+        try save(configuration, configKey: lastUsedKey, apiKeyKey: lastUsedApiKeyKey, storage: storage)
     }
 
-    static func loadLastUsed() throws -> AIHostConfiguration? {
-        try load(configKey: lastUsedKey, apiKeyKey: lastUsedApiKeyKey)
+    static func loadLastUsed(storage: Storage = .app) throws -> AIHostConfiguration? {
+        try load(configKey: lastUsedKey, apiKeyKey: lastUsedApiKeyKey, storage: storage)
     }
 
-    static func clearLastUsed() {
-        defaults.removeObject(forKey: lastUsedKey)
-        KeychainService.delete(key: lastUsedApiKeyKey)
+    static func clearLastUsed(storage: Storage = .app) {
+        storage.defaults.removeObject(forKey: lastUsedKey)
+        KeychainService.delete(key: lastUsedApiKeyKey, service: storage.keychainService)
     }
 
-    static func clear(campaignId: String) {
-        defaults.removeObject(forKey: configKey(campaignId: campaignId))
-        KeychainService.delete(key: apiKeyKey(campaignId: campaignId))
+    static func clear(campaignId: String, storage: Storage = .app) {
+        storage.defaults.removeObject(forKey: configKey(campaignId: campaignId))
+        KeychainService.delete(key: apiKeyKey(campaignId: campaignId), service: storage.keychainService)
     }
 
-    private static func save(_ configuration: AIHostConfiguration, configKey: String, apiKeyKey: String) throws {
+    private static func save(_ configuration: AIHostConfiguration, configKey: String, apiKeyKey: String, storage: Storage) throws {
         let canonicalConfiguration = try configuration.validated()
 
         let encoder = JSONEncoder()
         let data = try encoder.encode(canonicalConfiguration)
-        defaults.set(data, forKey: configKey)
+        storage.defaults.set(data, forKey: configKey)
 
         let trimmedApiKey = canonicalConfiguration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedApiKey.isEmpty {
-            try KeychainService.save(key: apiKeyKey, value: trimmedApiKey)
+            try KeychainService.save(key: apiKeyKey, value: trimmedApiKey, service: storage.keychainService)
         } else {
-            KeychainService.delete(key: apiKeyKey)
+            KeychainService.delete(key: apiKeyKey, service: storage.keychainService)
         }
     }
 
-    private static func load(configKey: String, apiKeyKey: String) throws -> AIHostConfiguration? {
-        guard let data = defaults.data(forKey: configKey) else {
+    private static func load(configKey: String, apiKeyKey: String, storage: Storage) throws -> AIHostConfiguration? {
+        guard let data = storage.defaults.data(forKey: configKey) else {
             return nil
         }
 
@@ -408,9 +416,9 @@ enum AIHostConfigurationStore {
             // `try?` is intentional: if migration re-save fails (e.g. Keychain busy),
             // we still return the decoded config with apiKey intact. The next load
             // will attempt migration again — a benign retry with no data loss.
-            try? save(decoded, configKey: configKey, apiKeyKey: apiKeyKey)
+            try? save(decoded, configKey: configKey, apiKeyKey: apiKeyKey, storage: storage)
         } else {
-            decoded.apiKey = KeychainService.load(key: apiKeyKey) ?? ""
+            decoded.apiKey = KeychainService.load(key: apiKeyKey, service: storage.keychainService) ?? ""
         }
 
         return try decoded.validated()
