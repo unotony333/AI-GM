@@ -33,6 +33,8 @@ enum Palette {
     static let candleInk = Color(hex: 0x2A1A08)
     /// HP、房主印記
     static let wax = Color(hex: 0xC2483A)
+    /// 小字用的紅色：失敗、受傷。wax 在深色底上對比不夠
+    static let ember = Color(hex: 0xE8806E)
     /// 已確認
     static let moss = Color(hex: 0x8CC29F)
 }

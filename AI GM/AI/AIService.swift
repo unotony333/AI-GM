@@ -82,14 +82,26 @@ final class AIService {
 
         // Try structured JSON parsing first
         if let normalizedJSON = normalizeJSONObject(in: trimmedContent),
-           let data = normalizedJSON.data(using: .utf8),
-           let response = try? JSONDecoder().decode(AIResponse.self, from: data) {
+           let response = decodeResponse(from: normalizedJSON) {
             return response
         }
 
         // Fallback: treat entire content as narration
         AppLogger.ai.warning("AI response is not valid JSON, falling back to plain text narration")
         return AIResponse(narration: trimmedContent)
+    }
+
+    private func decodeResponse(from json: String) -> AIResponse? {
+        // 有些模型會把正數寫成 +3，這不是合法的 JSON
+        let withoutPlusSigns = json.replacingOccurrences(of: #":\s*\+(\d)"#, with: ": $1", options: .regularExpression)
+
+        for candidate in [json, withoutPlusSigns] {
+            if let data = candidate.data(using: .utf8),
+               let response = try? JSONDecoder().decode(AIResponse.self, from: data) {
+                return response
+            }
+        }
+        return nil
     }
 
     func sendRawJSON(messages: [Message]) async throws -> String {
@@ -354,4 +366,78 @@ final class AIService {
 
 struct AIResponse: Decodable {
     let narration: String
+    let results: [AIPlayerResult]
+
+    private enum CodingKeys: String, CodingKey {
+        case narration
+        case results
+    }
+
+    private struct LossyResult: Decodable {
+        let value: AIPlayerResult?
+
+        init(from decoder: Decoder) throws {
+            value = try? AIPlayerResult(from: decoder)
+        }
+    }
+
+    init(narration: String, results: [AIPlayerResult] = []) {
+        self.narration = narration
+        self.results = results
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        narration = try container.decode(String.self, forKey: .narration)
+        // 格式不對的結果只略過那一筆，讀得到劇情就不算解析失敗
+        results = ((try? container.decode([LossyResult].self, forKey: .results)) ?? []).compactMap(\.value)
+    }
+}
+
+/// AI 回傳的單一玩家結果，還沒經過 App 檢查
+struct AIPlayerResult: Decodable, Equatable {
+    let player: String
+    let stat: String?
+    let dc: Int?
+    let hpChange: Int
+    let reason: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case player
+        case stat
+        case dc
+        case hpChange
+        case reason
+    }
+
+    init(player: String, stat: String?, dc: Int?, hpChange: Int, reason: String?) {
+        self.player = player
+        self.stat = stat
+        self.dc = dc
+        self.hpChange = hpChange
+        self.reason = reason
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        player = try container.decode(String.self, forKey: .player)
+        stat = try? container.decode(String.self, forKey: .stat)
+        dc = Self.flexibleInt(in: container, forKey: .dc)
+        hpChange = Self.flexibleInt(in: container, forKey: .hpChange) ?? 0
+        reason = try? container.decode(String.self, forKey: .reason)
+    }
+
+    /// 模型常把數字寫成 "12"、"-3" 或 12.0
+    private static func flexibleInt(in container: KeyedDecodingContainer<CodingKeys>, forKey key: CodingKeys) -> Int? {
+        if let value = try? container.decode(Int.self, forKey: key) {
+            return value
+        }
+        if let value = try? container.decode(Double.self, forKey: key) {
+            return Int(exactly: value.rounded())
+        }
+        if let value = try? container.decode(String.self, forKey: key) {
+            return Int(value.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "−", with: "-"))
+        }
+        return nil
+    }
 }

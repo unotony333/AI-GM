@@ -41,6 +41,10 @@ final class CampaignService: ObservableObject {
     @Published var confirmedActions: [CampaignAction] = []
     @Published var localErrorMessage: String?
 
+    /// 玩家資料與房間上的 HP 分開監聽，任一邊更新後合併成 players
+    var playerDocuments: [Player] = []
+    var roomHP: [String: Int] = [:]
+
     var listeners: [ListenerRegistration] = []
     var currentRoundListener: ListenerRegistration?
     var currentRoundActionsListener: ListenerRegistration?
@@ -72,6 +76,11 @@ final class CampaignService: ObservableObject {
         players.filter { player in
             !confirmedActions.contains { $0.playerId == player.id }
         }
+    }
+
+    var isMyPlayerDown: Bool {
+        guard let userId = UserService.shared.sessionStatus.userID else { return false }
+        return players.first { $0.id == userId }?.isDown ?? false
     }
 
     var myConfirmedAction: CampaignAction? {
@@ -154,6 +163,8 @@ final class CampaignService: ObservableObject {
         currentRoundNumber = 0
         typedMessages = []
         players = []
+        playerDocuments = []
+        roomHP = [:]
         confirmedActions = []
     }
 
@@ -199,7 +210,12 @@ final class CampaignService: ObservableObject {
 
     // MARK: - Messaging
 
-    private func messagePayload(kind: CampaignMessageKind, text: String, roundNumber: Int?) -> [String: Any] {
+    private func messagePayload(
+        kind: CampaignMessageKind,
+        text: String,
+        roundNumber: Int?,
+        outcomes: [RoundOutcome] = []
+    ) -> [String: Any] {
         var payload: [String: Any] = [
             "kind": kind.rawValue,
             "text": text,
@@ -208,6 +224,10 @@ final class CampaignService: ObservableObject {
 
         if let roundNumber {
             payload["roundNumber"] = roundNumber
+        }
+
+        if !outcomes.isEmpty {
+            payload["outcomes"] = outcomes.map(\.firestoreData)
         }
 
         return payload
@@ -315,7 +335,7 @@ final class CampaignService: ObservableObject {
             ])
             AppLogger.firebase.info("Resolving round \(self.currentRoundNumber) for campaign \(campaignId)")
 
-            let narration = try await engine.resolveRound(
+            let resolution = try await engine.resolveRound(
                 messages: typedMessages,
                 players: players,
                 actions: confirmedActions,
@@ -325,10 +345,16 @@ final class CampaignService: ObservableObject {
             try await commitNarration(
                 campaignId: campaignId,
                 kind: .narration,
-                text: narration,
+                text: resolution.narration,
                 roundNumber: currentRoundNumber == 0 ? nil : currentRoundNumber,
-                nextRoundNumber: currentRoundNumber + 1
+                nextRoundNumber: currentRoundNumber + 1,
+                resolution: resolution
             )
+
+            // 寫入完成時，監聽已收到這回合的劇情與 HP，結局才接得上
+            if resolution.isPartyDown {
+                await generateEnding(using: engine)
+            }
         } catch {
             try? await updateCampaign(campaignId, [
                 "phase": CampaignPhase.collectingActions.rawValue,
@@ -340,30 +366,78 @@ final class CampaignService: ObservableObject {
         }
     }
 
-    /// 敘事、下一回合與 phase 一次寫入，避免中途失敗留下重複的敘事或半套回合
+    /// 全員倒下後的結局。這回合的劇情和 HP 已經存好，失敗時房間停在 ending，房主可以重新產生
+    func generateEnding(using engine: GameEngine) async {
+        guard isHost, let campaignId else { return }
+
+        do {
+            guard let configuration = try AIHostConfigurationStore.load(campaignId: campaignId) else {
+                localErrorMessage = Self.missingConfigurationMessage
+                return
+            }
+
+            let narration = try await engine.generateEnding(
+                messages: typedMessages,
+                players: players,
+                configuration: configuration
+            )
+
+            let campaignDocument = db.collection("campaigns").document(campaignId)
+            let batch = db.batch()
+            batch.setData(
+                messagePayload(kind: .ending, text: narration, roundNumber: nil),
+                forDocument: campaignDocument.collection("messages").document()
+            )
+            batch.setData([
+                "phase": CampaignPhase.finished.rawValue,
+                "updatedAt": Timestamp()
+            ], forDocument: campaignDocument, merge: true)
+            try await batch.commit()
+            AppLogger.firebase.info("Campaign finished: \(campaignId)")
+        } catch {
+            if !isCancellation(error) {
+                localErrorMessage = "產生結局失敗：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// 敘事、HP、下一回合與 phase 一次寫入，避免中途失敗留下重複的敘事或半套回合
     private func commitNarration(
         campaignId: String,
         kind: CampaignMessageKind,
         text: String,
         roundNumber: Int?,
-        nextRoundNumber: Int
+        nextRoundNumber: Int,
+        resolution: RoundResolution? = nil
     ) async throws {
         let campaignDocument = db.collection("campaigns").document(campaignId)
         let messageDocument = campaignDocument.collection("messages").document()
-        let roundDocument = campaignDocument.collection("rounds").document()
 
         let batch = db.batch()
-        batch.setData(messagePayload(kind: kind, text: text, roundNumber: roundNumber), forDocument: messageDocument)
-        batch.setData([
-            "number": nextRoundNumber,
-            "status": RoundStatus.collecting.rawValue,
-            "createdAt": Timestamp()
-        ], forDocument: roundDocument)
-        batch.setData([
-            "currentRoundId": roundDocument.documentID,
-            "phase": CampaignPhase.collectingActions.rawValue,
-            "updatedAt": Timestamp()
-        ], forDocument: campaignDocument, merge: true)
+        batch.setData(
+            messagePayload(kind: kind, text: text, roundNumber: roundNumber, outcomes: resolution?.outcomes ?? []),
+            forDocument: messageDocument
+        )
+
+        var campaignUpdate: [String: Any] = ["updatedAt": Timestamp()]
+        if let resolution {
+            campaignUpdate["playerHP"] = resolution.updatedHP
+        }
+
+        if resolution?.isPartyDown == true {
+            campaignUpdate["phase"] = CampaignPhase.ending.rawValue
+        } else {
+            let roundDocument = campaignDocument.collection("rounds").document()
+            batch.setData([
+                "number": nextRoundNumber,
+                "status": RoundStatus.collecting.rawValue,
+                "createdAt": Timestamp()
+            ], forDocument: roundDocument)
+            campaignUpdate["currentRoundId"] = roundDocument.documentID
+            campaignUpdate["phase"] = CampaignPhase.collectingActions.rawValue
+        }
+
+        batch.setData(campaignUpdate, forDocument: campaignDocument, merge: true)
         try await batch.commit()
     }
 

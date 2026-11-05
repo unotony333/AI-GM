@@ -73,6 +73,85 @@ final class AIServiceTests: XCTestCase {
         XCTAssertEqual(response.narration, plainText)
     }
 
+    private func parse(_ content: String) async throws -> AIResponse {
+        let mock = MockHTTPClient()
+        mock.enqueueResponse(data: openAIResponseData(content: content), statusCode: 200)
+        let service = AIService(configuration: makeConfig(), httpClient: mock)
+        return try await service.sendMessage(messages: [.init(role: .user, content: "test")])
+    }
+
+    func testResponseWithoutResultsHasNoResults() async throws {
+        let response = try await parse(#"{"narration":"故事。"}"#)
+
+        XCTAssertEqual(response.results, [])
+    }
+
+    func testResultsAreParsed() async throws {
+        let response = try await parse("""
+        {"narration":"故事。","results":[{"player":"P1","stat":"STR","dc":12,"hpChange":-3,"reason":"被砍中"}]}
+        """)
+
+        XCTAssertEqual(response.results, [
+            AIPlayerResult(player: "P1", stat: "STR", dc: 12, hpChange: -3, reason: "被砍中")
+        ])
+    }
+
+    func testNullStatAndDifficultyAreAccepted() async throws {
+        let response = try await parse("""
+        {"narration":"故事。","results":[{"player":"P1","stat":null,"dc":null,"hpChange":0,"reason":null}]}
+        """)
+
+        XCTAssertEqual(response.results, [
+            AIPlayerResult(player: "P1", stat: nil, dc: nil, hpChange: 0, reason: nil)
+        ])
+    }
+
+    func testMalformedResultIsSkippedWithoutLosingTheOthers() async throws {
+        let response = try await parse("""
+        {"narration":"故事。","results":[{"stat":"STR"},"壞掉的",{"player":"P2","hpChange":-1}]}
+        """)
+
+        XCTAssertEqual(response.narration, "故事。")
+        XCTAssertEqual(response.results, [
+            AIPlayerResult(player: "P2", stat: nil, dc: nil, hpChange: -1, reason: nil)
+        ])
+    }
+
+    func testResultsOfWrongTypeStillKeepNarration() async throws {
+        let response = try await parse(#"{"narration":"故事。","results":"沒有結果"}"#)
+
+        XCTAssertEqual(response.narration, "故事。", "results 格式不對時，不該把整段 JSON 當成劇情")
+        XCTAssertEqual(response.results, [])
+    }
+
+    func testMissingHPChangeCountsAsNoChange() async throws {
+        let response = try await parse(#"{"narration":"故事。","results":[{"player":"P1","stat":"DEX","dc":10}]}"#)
+
+        XCTAssertEqual(response.results.first?.hpChange, 0)
+        XCTAssertEqual(response.results.first?.dc, 10)
+    }
+
+    func testNumbersWrittenAsTextAreAccepted() async throws {
+        let response = try await parse("""
+        {"narration":"故事。","results":[
+          {"player":"P1","dc":"12","hpChange":"-3"},
+          {"player":"P2","dc":"高","hpChange":"+4"},
+          {"player":"P3","dc":11.0,"hpChange":"−2"},
+          {"player":"P4","hpChange":1e300}
+        ]}
+        """)
+
+        XCTAssertEqual(response.results.map(\.dc), [12, nil, 11, nil])
+        XCTAssertEqual(response.results.map(\.hpChange), [-3, 4, -2, 0])
+    }
+
+    func testPlusSignedNumberDoesNotBreakTheResponse() async throws {
+        let response = try await parse(#"{"narration":"故事。","results":[{"player":"P1","hpChange": +3}]}"#)
+
+        XCTAssertEqual(response.narration, "故事。", "+3 不是合法 JSON，但很多模型會這樣寫，不該把整段 JSON 當成劇情")
+        XCTAssertEqual(response.results.first?.hpChange, 3)
+    }
+
     func testEmptyResponseThrows() async {
         let mock = MockHTTPClient()
         mock.enqueueResponse(data: openAIResponseData(content: "   "), statusCode: 200)

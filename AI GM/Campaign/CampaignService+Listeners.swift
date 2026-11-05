@@ -50,6 +50,8 @@ extension CampaignService {
                 self.phase = CampaignPhase(rawValue: data["phase"] as? String ?? "") ?? .lobby
                 self.provider = data["provider"] as? String ?? ""
                 self.model = data["model"] as? String ?? ""
+                self.roomHP = data["playerHP"] as? [String: Int] ?? [:]
+                self.players = self.playerDocuments.applyingHP(self.roomHP)
                 let nextRoundId = data["currentRoundId"] as? String
                 if nextRoundId != self.currentRoundId {
                     self.currentRoundId = nextRoundId
@@ -93,7 +95,8 @@ extension CampaignService {
                     self.localErrorMessage = "玩家監聽異常：\(error.localizedDescription)"
                     return
                 }
-                self.players = snapshot?.documents.map { self.decodePlayer(from: $0) } ?? []
+                self.playerDocuments = snapshot?.documents.map { self.decodePlayer(from: $0) } ?? []
+                self.players = self.playerDocuments.applyingHP(self.roomHP)
             }
 
         listeners.append(listener)
@@ -173,7 +176,8 @@ extension CampaignService {
             id: document.documentID,
             kind: CampaignMessageKind(rawValue: data["kind"] as? String ?? "") ?? .system,
             text: data["text"] as? String ?? "",
-            roundNumber: data["roundNumber"] as? Int
+            roundNumber: data["roundNumber"] as? Int,
+            outcomes: (data["outcomes"] as? [[String: Any]] ?? []).compactMap(RoundOutcome.init(firestoreData:))
         )
     }
 }

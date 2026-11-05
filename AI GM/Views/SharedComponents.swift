@@ -137,6 +137,8 @@ func phaseLabel(_ phase: CampaignPhase) -> String {
     case .starting: return "開場中"
     case .collectingActions: return "等待行動"
     case .resolvingTurn: return "結算中"
+    case .ending: return "寫結局中"
+    case .finished: return "已結束"
     }
 }
 
@@ -146,6 +148,8 @@ func phaseColor(_ phase: CampaignPhase) -> Color {
     case .starting: return Palette.candle
     case .collectingActions: return Palette.moss
     case .resolvingTurn: return Palette.candle
+    case .ending: return Palette.candle
+    case .finished: return Palette.sage
     }
 }
 
@@ -162,6 +166,7 @@ func messageKindLabel(_ kind: CampaignMessageKind) -> String {
     case .system: return "系統"
     case .narration: return "GM"
     case .player: return "玩家"
+    case .ending: return "終章"
     }
 }
 

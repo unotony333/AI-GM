@@ -30,6 +30,8 @@
 | 🏠 房間系統 | 房主建立房間並分享 Room ID，其他玩家輸入 ID 即可加入，也能回到舊房間延續冒險 |
 | ⚡ 即時同步 | 所有玩家狀態、行動確認、AI 敘事透過 Firebase Firestore 即時推播 |
 | 🎲 角色屬性 | 每位玩家擁有 HP、力量（STR）、敏捷（DEX）、智力（INT）等基礎屬性 |
+| 🎯 擲骰檢定 | App 替有行動的玩家擲 d20，AI 決定用哪個屬性與難度，並回傳 HP 變化；結果列在每回合劇情下面 |
+| 💀 倒下與結局 | HP 歸零的玩家仍可輸入行動，能否做到、能否被救回都由 AI 判定；全員歸零時 AI 會寫下故事結尾 |
 | 🔑 匿名登入 | 使用者透過 Firebase 匿名認證，無需額外帳號 |
 | 🔒 安全儲存 | API Key 透過 iOS Keychain 加密保存，不會上傳至 Firebase |
 | 💾 設定記憶 | AI 連線設定自動儲存於本機，下次開啟自動複原 |
@@ -93,6 +95,8 @@
 | `starting` | 房主已開始，正在向 AI 取得開場白 | ② → ③ |
 | `collectingActions` | 玩家輸入並確認本回合行動 | ③ |
 | `resolvingTurn` | 房主已送出所有行動，AI 正在結算 | ③ |
+| `ending` | 全員 HP 歸零，AI 正在寫結局；失敗時房主可以重新產生 | ③ |
+| `finished` | 冒險結束，只能查看紀錄或離開房間 | ③ |
 
 ---
 
@@ -216,13 +220,15 @@ open "AI GM.xcodeproj"
 |------|------|
 | `Player` | 玩家 ID、名稱、HP/MaxHP、STR/DEX/INT |
 | `CampaignAction` | 玩家行動文字與確認狀態 |
-| `CampaignMessage` | AI 敘事 / 玩家訊息紀錄（opening / narration / player / system） |
+| `CampaignMessage` | AI 敘事 / 玩家訊息紀錄（opening / narration / player / system / ending），回合敘事附上檢定與 HP 結果 |
+| `RoundOutcome` | 單一玩家的回合結果：檢定（屬性、骰子、加成、難度）與實際 HP 變化 |
 
 ### Firebase Firestore 結構
 
 ```
 campaigns/{campaignId}
 ├── name, hostId, phase, provider, model, currentRoundId
+├── playerHP                     # 每位玩家目前的 HP，只有房主能寫入
 ├── players/{playerId}           # 玩家屬性
 ├── messages/{messageId}         # 劇情紀錄（依 timestamp 排序）
 └── rounds/{roundId}
@@ -252,7 +258,7 @@ AI GM/
 │   │   ├── CampaignService.swift      # 房間 CRUD、行動流程
 │   │   └── CampaignService+Listeners.swift  # Firestore 即時監聽
 │   ├── RuleEngine/
-│   │   └── GameEngine.swift           # Prompt 組裝與 AI 呼叫
+│   │   └── GameEngine.swift           # Prompt 組裝、擲骰、回合結算與 AI 呼叫
 │   └── Views/
 │       ├── GameView.swift             # 遊戲主畫面
 │       ├── GameViewModel.swift        # 遊戲邏輯
@@ -268,6 +274,8 @@ AI GM/
 ├── AI GMTests/
 │   ├── AIServiceTests.swift               # AI 請求 / 回應 / 重試邏輯測試
 │   ├── GameEngineTests.swift              # Prompt 組裝測試
+│   ├── RoundResolutionTests.swift         # 擲骰、檢定、HP 上下限與遊戲結束判定
+│   ├── CampaignModelsTests.swift          # 回合結果的顯示文字、Firestore 資料與房間 HP
 │   ├── FirebaseSessionGateTests.swift     # 認證閘門測試
 │   ├── AIHostConfigurationTests.swift      # AI 設定檢查測試
 │   ├── AIHostConfigurationStoreTests.swift # AI 設定儲存測試
@@ -300,8 +308,10 @@ xcodebuild test \
 
 | 測試檔案 | 涵蓋範圍 |
 |----------|----------|
-| `AIServiceTests` | AI API 請求 / JSON 解析 / 重試邏輯 |
-| `GameEngineTests` | Prompt 組裝（開場白 / 回合結算） |
+| `AIServiceTests` | AI API 請求 / JSON 解析（含格式不對的結果）/ 重試邏輯 |
+| `GameEngineTests` | Prompt 組裝（開場白 / 回合結算 / 結局） |
+| `RoundResolutionTests` | 擲骰、檢定成敗、HP 上下限、AI 亂回時的處理、遊戲結束判定 |
+| `CampaignModelsTests` | 回合結果的顯示文字與 Firestore 資料、房間 HP 覆蓋玩家資料 |
 | `FirebaseSessionGateTests` | 認證閘門狀態判斷 |
 | `AIHostConfigurationTests` | 建房前的 AI 設定檢查（雲端供應商必須填 API Key） |
 | `AIHostConfigurationStoreTests` | AI 設定的儲存與讀取、只保留最近房間的設定，且不動到 App 真正的設定 |

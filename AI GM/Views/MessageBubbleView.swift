@@ -13,7 +13,7 @@ struct MessageBubbleView: View {
 
     var body: some View {
         switch message.kind {
-        case .opening, .narration:
+        case .opening, .narration, .ending:
             narration
         case .player:
             playerNote
@@ -27,6 +27,9 @@ struct MessageBubbleView: View {
     private var chapterTitle: String {
         if message.kind == .opening {
             return "序章"
+        }
+        if message.kind == .ending {
+            return "終章"
         }
         if let roundNumber = message.roundNumber {
             return "第 \(roundNumber) 回合"
@@ -44,6 +47,10 @@ struct MessageBubbleView: View {
                 .lineSpacing(6)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
+
+            if !message.outcomes.isEmpty {
+                outcomeList
+            }
         }
         .padding(.top, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -77,6 +84,42 @@ struct MessageBubbleView: View {
             endPoint: leading ? .trailing : .leading
         )
         .frame(height: 1)
+    }
+
+    // MARK: - Round Outcomes
+
+    private var outcomeList: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(message.outcomes) { outcome in
+                VStack(alignment: .leading, spacing: 4) {
+                    if let checkSummary = outcome.checkSummary, let check = outcome.check {
+                        Text("\(checkSummary)，\(checkResult(check))")
+                    }
+
+                    if let hpSummary = outcome.hpSummary {
+                        Text(hpSummary)
+                            .foregroundStyle(outcome.hpChange < 0 ? Palette.ember : Palette.moss)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+        .font(.footnote)
+        .foregroundStyle(Palette.vellum.opacity(0.85))
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.feltSunken, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Palette.hairline, lineWidth: 1)
+        )
+    }
+
+    private func checkResult(_ check: AbilityCheck) -> Text {
+        Text(check.isSuccess ? "成功" : "失敗")
+            .fontWeight(.semibold)
+            .foregroundStyle(check.isSuccess ? Palette.moss : Palette.ember)
     }
 
     // MARK: - Player / System

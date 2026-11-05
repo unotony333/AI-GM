@@ -70,19 +70,31 @@ final class GameViewModel: ObservableObject {
         }
     }
 
+    func generateEnding() {
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        currentAITask = Task {
+            await campaign.generateEnding(using: engine)
+            isSubmitting = false
+            currentAITask = nil
+        }
+    }
+
     func cancelAIRequest() {
         currentAITask?.cancel()
         currentAITask = nil
         isSubmitting = false
     }
 
-    /// 房主 App 在等待 AI 時被關閉，房間會停在 starting / resolvingTurn，讓房主重新送出
+    /// 房主 App 在等待 AI 時被關閉，房間會停在 starting / resolvingTurn / ending，讓房主重新送出
     func retryInterruptedRequest() {
         switch campaign.phase {
         case .starting:
             startGame()
         case .resolvingTurn:
             continueRound()
+        case .ending:
+            generateEnding()
         default:
             break
         }

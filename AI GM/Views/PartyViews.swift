@@ -11,6 +11,7 @@ import SwiftUI
 struct PlayerToken: View {
     let name: String
     let isReady: Bool
+    var isDown: Bool = false
     var size: CGFloat = 32
 
     private var initial: String {
@@ -27,7 +28,8 @@ struct PlayerToken: View {
                 Circle().strokeBorder(isReady ? Palette.moss : Palette.sageDim.opacity(0.6), lineWidth: isReady ? 2 : 1)
             )
             .overlay(Circle().stroke(Palette.feltDeep, lineWidth: 2))
-            .accessibilityLabel("\(name)，\(isReady ? "已確認" : "等待確認")")
+            .opacity(isDown ? 0.45 : 1)
+            .accessibilityLabel("\(name)，\(isDown ? "已倒下" : isReady ? "已確認" : "等待確認")")
     }
 }
 
@@ -70,10 +72,11 @@ struct PlayerSheetRow: View {
     let player: Player
     let isHost: Bool
     let confirmedAction: CampaignAction?
+    var showsActionStatus: Bool = true
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            PlayerToken(name: player.name, isReady: confirmedAction != nil, size: 38)
+            PlayerToken(name: player.name, isReady: confirmedAction != nil, isDown: player.isDown, size: 38)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
@@ -91,12 +94,18 @@ struct PlayerSheetRow: View {
                             .background(Palette.wax, in: Capsule())
                     }
 
+                    if player.isDown {
+                        headerChip(title: "倒下", color: Palette.ember)
+                    }
+
                     Spacer(minLength: 4)
 
-                    Label(confirmedAction == nil ? "等待確認" : "已確認",
-                          systemImage: confirmedAction == nil ? "hourglass" : "checkmark.circle.fill")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(confirmedAction == nil ? Palette.sage : Palette.moss)
+                    if showsActionStatus {
+                        Label(confirmedAction == nil ? "等待確認" : "已確認",
+                              systemImage: confirmedAction == nil ? "hourglass" : "checkmark.circle.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(confirmedAction == nil ? Palette.sage : Palette.moss)
+                    }
                 }
 
                 HPBar(hp: player.hp, maxHP: player.maxHP)

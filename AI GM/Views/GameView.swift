@@ -245,7 +245,7 @@ struct GameView: View {
             HStack(spacing: 12) {
                 HStack(spacing: -8) {
                     ForEach(vm.sortedPlayers.prefix(5)) { player in
-                        PlayerToken(name: player.name, isReady: isReady(player))
+                        PlayerToken(name: player.name, isReady: isReady(player), isDown: player.isDown)
                     }
                 }
 
@@ -292,7 +292,8 @@ struct GameView: View {
                 PlayerSheetRow(
                     player: player,
                     isHost: player.id == campaign.hostId,
-                    confirmedAction: campaign.confirmedActions.first(where: { $0.playerId == player.id })
+                    confirmedAction: isAdventureOver ? nil : campaign.confirmedActions.first(where: { $0.playerId == player.id }),
+                    showsActionStatus: !isAdventureOver
                 )
             }
 
@@ -444,7 +445,7 @@ struct GameView: View {
                     .foregroundStyle(Palette.sage)
 
                 GameTextEditor(
-                    placeholder: "描述你這回合想做的事",
+                    placeholder: campaign.isMyPlayerDown ? "你倒下了，還想試著做什麼？" : "描述你這回合想做的事",
                     text: $vm.actionDraft
                 )
 
@@ -460,6 +461,18 @@ struct GameView: View {
         case .resolvingTurn:
             thinkingRow("房主正在把所有已確認行動交給 AI 結算...")
 
+        case .ending:
+            thinkingRow("所有人都倒下了，AI 正在寫下這場冒險的結局...")
+
+        case .finished:
+            Text("這場冒險已經結束。")
+                .font(.subheadline)
+                .foregroundStyle(Palette.sage)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            actionButton(title: "離開房間", style: .secondary, isDisabled: false) {
+                vm.leaveRoom()
+            }
         }
     }
 
@@ -488,24 +501,31 @@ struct GameView: View {
     /// 只有房主會呼叫 AI；房主這台沒有進行中的請求，代表上次請求被中斷了
     @ViewBuilder
     private var interruptedRow: some View {
+        let isEnding = campaign.phase == .ending
+
         HStack(spacing: 12) {
             D20Emblem(glow: 0)
                 .frame(width: 28)
-            Text("上一次的 AI 請求沒有完成，可能是 App 在等待時被關閉了。")
+            Text(isEnding ? "這場冒險的結局還沒寫完。" : "上一次的 AI 請求沒有完成，可能是 App 在等待時被關閉了。")
                 .font(.subheadline)
                 .foregroundStyle(Palette.sage)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
 
-        actionButton(title: "重新送出", style: .primary, isDisabled: false) {
+        actionButton(title: isEnding ? "重新產生結局" : "重新送出", style: .primary, isDisabled: false) {
             vm.retryInterruptedRequest()
         }
     }
 
     // MARK: - Helpers
 
+    /// 全員倒下後不會再有新回合，最後一回合的行動已經結算完，不該繼續顯示為已確認
+    private var isAdventureOver: Bool {
+        campaign.phase == .ending || campaign.phase == .finished
+    }
+
     private func isReady(_ player: Player) -> Bool {
-        campaign.confirmedActions.contains { $0.playerId == player.id }
+        !isAdventureOver && campaign.confirmedActions.contains { $0.playerId == player.id }
     }
 
     private func toggleRoomStatus() {
@@ -541,6 +561,10 @@ struct GameView: View {
             return "每位玩家先編輯自己的草稿，確認後才會公開。"
         case .resolvingTurn:
             return "AI 正在結算本回合。"
+        case .ending:
+            return "所有人都倒下了，等待這場冒險的結局。"
+        case .finished:
+            return "這場冒險已經結束。"
         }
     }
 }
